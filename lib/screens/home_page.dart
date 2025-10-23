@@ -1,8 +1,7 @@
-// screens/home_page.dart
 import 'package:flutter/material.dart';
 import '../widgets/build_menu_card.dart';
 import 'flashcard_page.dart';
-import 'categories_page.dart';
+import 'library_page.dart';
 import 'saves_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -18,7 +17,7 @@ class _HomePageState extends State<HomePage> {
 
   final List<Widget> _pages = const [
     MainPage(),
-    CategoriesPage(), // Artık Kütüphane sayfası
+    LibraryPage(), // Artık Kütüphane sayfası
     SavesPage()
   ];
 

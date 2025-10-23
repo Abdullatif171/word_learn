@@ -1,4 +1,3 @@
-// screens/categories_page.dart
 import 'package:flutter/material.dart';
 import '../models/deck_model.dart';
 import '../services/deck_service.dart';
@@ -6,14 +5,14 @@ import '../services/firebase_service.dart';
 import '../services/save_service.dart';
 import 'flashcard_page.dart';
 
-class CategoriesPage extends StatefulWidget {
-  const CategoriesPage({super.key});
+class LibraryPage extends StatefulWidget {
+  const LibraryPage({super.key});
 
   @override
-  State<CategoriesPage> createState() => _CategoriesPageState();
+  State<LibraryPage> createState() => _LibraryPageState();
 }
 
-class _CategoriesPageState extends State<CategoriesPage>
+class _LibraryPageState extends State<LibraryPage>
     with AutomaticKeepAliveClientMixin {
   // Servisleri başlat
   final FirebaseService _firebaseService = FirebaseService();
@@ -180,17 +179,17 @@ class _CategoriesPageState extends State<CategoriesPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // İndirilenler Bölümü
-                    _buildDeckSectionTitle("İndirilenler"),
+                    // kitaplığım Bölümü
+                    _buildDeckSectionTitle("kitaplığım"),
                     _buildDeckListView(
-                      decks: _downloadedDecks, // <--- HATA BURADAYDI, DÜZELTİLDİ
+                      decks: _downloadedDecks,
                       isDownloadedSection: true,
                     ),
                     const SizedBox(height: 20),
                     // Önerilenler Bölümü
                     _buildDeckSectionTitle("Önerilenler"),
                     _buildDeckListView(
-                      decks: _recommendedDecks, // <--- HATA BURADAYDI, DÜZELTİLDİ
+                      decks: _recommendedDecks,
                       isDownloadedSection: false,
                     ),
                   ],
@@ -200,7 +199,7 @@ class _CategoriesPageState extends State<CategoriesPage>
     );
   }
 
-  // "İndirilenler" / "Önerilenler" başlığı
+  // "kitaplığım" / "Önerilenler" başlığı
   Widget _buildDeckSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
