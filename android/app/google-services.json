@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "491700850358",
+    "project_id": "word-cards-e710f",
+    "storage_bucket": "word-cards-e710f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:491700850358:android:47320580a3d77823502017",
+        "android_client_info": {
+          "package_name": "com.example.word_learn"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8Nf5l35v4PA1eOxVD0AUGOJUoImQfl5g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
