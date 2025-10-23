@@ -10,12 +10,14 @@ class FlashcardPage extends StatefulWidget {
   final List<WordCard>? words;
   final bool continueFromLast;
   final String? loadSlot;
+  final bool loadUnlearnedOnly; // Yeni eklendi (Rastgele Öğren için)
 
   const FlashcardPage({
     super.key,
     this.words,
     this.continueFromLast = false,
     this.loadSlot,
+    this.loadUnlearnedOnly = false, // Varsayılan değer
   });
 
   @override
@@ -28,6 +30,9 @@ class _FlashcardPageState extends State<FlashcardPage> {
   List<WordCard> unLearnedWords = [];
   int totalWords = 0;
 
+  // Basitleştirilmiş SRS aralıkları (gün cinsinden)
+  final List<int> _srsIntervals = [1, 3, 7, 14, 30, 90, 180];
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +44,52 @@ class _FlashcardPageState extends State<FlashcardPage> {
     super.didUpdateWidget(oldWidget);
     if (widget.words != oldWidget.words) {
       _loadWords();
+    }
+  }
+
+  // Öğrenilmiş bir kelime için bir sonraki tekrar zamanını ve seviyesini hesaplar
+  WordCard _updateSrs(WordCard word) {
+    // Mevcut aralığı bul
+    final currentLevel = _srsIntervals.indexOf(word.reviewIntervalDays);
+    // Bir sonraki seviyeye geç (maksimum aralığı geçmesin)
+    final nextLevelIndex = (currentLevel + 1).clamp(0, _srsIntervals.length - 1);
+    final nextIntervalDays = _srsIntervals[nextLevelIndex];
+
+    final nextReviewDate = DateTime.now().add(Duration(days: nextIntervalDays));
+
+    return word.copyWith(
+      reviewIntervalDays: nextIntervalDays,
+      nextReviewTimestamp: nextReviewDate.toIso8601String(),
+    );
+  }
+  
+  // Bilinmeyen bir kelime için SRS'yi sıfırlar
+  WordCard _resetSrs(WordCard word) {
+    return word.copyWith(
+      reviewIntervalDays: 0, // 0: Yeni kelime olarak başla
+      nextReviewTimestamp: null,
+    );
+  }
+
+  // Tekrar zamanı gelen kelimeleri ana desteye taşır
+  void _moveDueWordsToMain() {
+    final now = DateTime.now();
+    final dueWords = learnedWords.where((word) {
+      if (word.nextReviewTimestamp == null) return false;
+      try {
+        final nextReview = DateTime.parse(word.nextReviewTimestamp!);
+        return nextReview.isBefore(now);
+      } catch (e) {
+        // Hatalı timestamp varsa tekrar edilmesi için sayılır
+        return true;
+      }
+    }).toList();
+
+    if (dueWords.isNotEmpty) {
+      // Due olanları öğrendiklerinden çıkar ve ana desteye (resetlenmiş olarak) ekle
+      learnedWords.removeWhere((word) => dueWords.contains(word));
+      mainWords.addAll(dueWords.map((word) => _resetSrs(word)));
+      mainWords.shuffle();
     }
   }
 
@@ -55,46 +106,63 @@ class _FlashcardPageState extends State<FlashcardPage> {
       return;
     }
 
-    if (widget.continueFromLast) {
-      final progress = await SaveService.loadLast();
-      if (progress["main"]!.isNotEmpty || progress["learned"]!.isNotEmpty) {
-        setState(() {
-          mainWords = progress["main"]!;
-          learnedWords = progress["learned"]!;
-          unLearnedWords = progress["unlearned"]!;
-          totalWords =
-              mainWords.length + learnedWords.length + unLearnedWords.length;
-        });
-        return;
-      }
-    }
+    final Map<String, List<WordCard>> progress;
 
     if (widget.loadSlot != null) {
-      final progress = await SaveService.loadSlot(widget.loadSlot!);
-      setState(() {
-        mainWords = progress["main"]!;
-        learnedWords = progress["learned"]!;
-        unLearnedWords = progress["unlearned"]!;
-        totalWords =
-            mainWords.length + learnedWords.length + unLearnedWords.length;
-      });
-      return;
+      progress = await SaveService.loadSlot(widget.loadSlot!);
+    } else if (widget.continueFromLast || widget.loadUnlearnedOnly) {
+      progress = await SaveService.loadLast();
+    } else {
+      // Eğer ne bir slot ne de son kayıt varsa, tüm kelimeleri yükle
+      final String jsonString = await rootBundle.loadString('assets/words.json');
+      final List<dynamic> jsonList = jsonDecode(jsonString);
+      wordsToLoad = jsonList.map((e) => WordCard.fromJson(e)).toList();
+      progress = {"main": wordsToLoad, "learned": [], "unlearned": []};
+    }
+    
+    // Kelimeleri yükle
+    mainWords = progress["main"]!;
+    learnedWords = progress["learned"]!;
+    unLearnedWords = progress["unlearned"]!;
+    
+    // Eğer 'Rastgele Öğren' modu aktifse, sadece öğrenilmemiş/tekrar gereken kelimelerle başla
+    if (widget.loadUnlearnedOnly) {
+      // Ana desteye öğrenilmemişleri ekle
+      mainWords.addAll(unLearnedWords);
+      unLearnedWords.clear();
+      
+      // Tüm öğrenilmiş kelimelerden, tekrar zamanı gelmiş olanları ana desteye taşı
+      _moveDueWordsToMain();
+      
+      // totalWords hala tüm kelime sayısını temsil etmeli.
+      totalWords = mainWords.length + learnedWords.length + unLearnedWords.length;
+      
+    } else {
+      // Normal yükleme: Tekrar zamanı gelenleri ana desteye taşı
+      _moveDueWordsToMain();
+      totalWords = mainWords.length + learnedWords.length + unLearnedWords.length;
     }
 
-    final String jsonString = await rootBundle.loadString('assets/words.json');
-    final List<dynamic> jsonList = jsonDecode(jsonString);
-    final allWords = jsonList.map((e) => WordCard.fromJson(e)).toList();
+    // Öğrenilmiş kelimeleri bir sonraki tekrar zamanına göre sırala (sadece görünüm için)
+    learnedWords.sort((a, b) => 
+        (a.nextReviewTimestamp ?? DateTime.now().toIso8601String())
+        .compareTo(b.nextReviewTimestamp ?? DateTime.now().toIso8601String()));
 
+
+    if (!mounted) return;
     setState(() {
-      mainWords = allWords;
-      totalWords = mainWords.length;
+      mainWords.shuffle(); // Ana desteyi karıştır
     });
   }
 
   void _moveToLearned(WordCard word) {
     setState(() {
       mainWords.remove(word);
-      learnedWords.add(word);
+      unLearnedWords.remove(word); // Unlearned'da da olabilir
+      learnedWords.add(_updateSrs(word)); // SRS güncellemesi
+      learnedWords.sort((a, b) => 
+            (a.nextReviewTimestamp ?? DateTime.now().toIso8601String())
+            .compareTo(b.nextReviewTimestamp ?? DateTime.now().toIso8601String()));
       _saveLast();
     });
   }
@@ -102,7 +170,8 @@ class _FlashcardPageState extends State<FlashcardPage> {
   void _moveToUnLearned(WordCard word) {
     setState(() {
       mainWords.remove(word);
-      unLearnedWords.add(word);
+      learnedWords.remove(word); // Learned'da da olabilir
+      unLearnedWords.add(_resetSrs(word)); // SRS sıfırlaması
       _saveLast();
     });
   }
@@ -110,7 +179,8 @@ class _FlashcardPageState extends State<FlashcardPage> {
   void _learnedWordsMoveToMain(WordCard word) {
     setState(() {
       learnedWords.remove(word);
-      mainWords.add(word);
+      mainWords.add(_resetSrs(word)); // SRS sıfırlaması
+      mainWords.shuffle();
       _saveLast();
     });
   }
@@ -118,7 +188,8 @@ class _FlashcardPageState extends State<FlashcardPage> {
   void _unLearnedWordsMoveToMain(WordCard word) {
     setState(() {
       unLearnedWords.remove(word);
-      mainWords.add(word);
+      mainWords.add(_resetSrs(word)); // SRS sıfırlaması
+      mainWords.shuffle();
       _saveLast();
     });
   }
@@ -165,6 +236,7 @@ class _FlashcardPageState extends State<FlashcardPage> {
 
   double get _progress {
     if (totalWords == 0) return 0.0;
+    // Toplam öğrenilen kelime: learnedWords.length
     return learnedWords.length / totalWords;
   }
 
@@ -197,7 +269,7 @@ class _FlashcardPageState extends State<FlashcardPage> {
           ],
         ),
         body: SafeArea(
-          child: mainWords.isEmpty && learnedWords.isEmpty
+          child: mainWords.isEmpty && learnedWords.isEmpty && unLearnedWords.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : Stack(
                   children: [
@@ -264,17 +336,35 @@ class _FlashcardPageState extends State<FlashcardPage> {
                     Positioned(
                       top: 5,
                       right: 20,
-                      child: MiniFlashcardStack(
-                        learnedWords: learnedWords,
-                        onTap: _learnedWordsMoveToMain,
+                      child: Column(
+                         crossAxisAlignment: CrossAxisAlignment.end,
+                         children: [
+                           MiniFlashcardStack(
+                            learnedWords: learnedWords.take(5).toList(),
+                            onTap: _learnedWordsMoveToMain,
+                          ),
+                          Text(
+                            "Öğrenilen: ${learnedWords.length}",
+                            style: const TextStyle(fontSize: 12, color: Colors.green),
+                          ),
+                         ],
                       ),
                     ),
                     Positioned(
                       bottom: 5,
                       left: 20,
-                      child: MiniFlashcardStack(
-                        learnedWords: unLearnedWords,
-                        onTap: _unLearnedWordsMoveToMain,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          MiniFlashcardStack(
+                            learnedWords: unLearnedWords.take(5).toList(),
+                            onTap: _unLearnedWordsMoveToMain,
+                          ),
+                          Text(
+                            "Bilinmeyen: ${unLearnedWords.length}",
+                            style: const TextStyle(fontSize: 12, color: Colors.red),
+                          ),
+                        ],
                       ),
                     ),
                   ],

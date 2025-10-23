@@ -1,8 +1,10 @@
+// screens/home_page.dart
 import 'package:flutter/material.dart';
 import '../widgets/build_menu_card.dart';
 import 'flashcard_page.dart';
 import 'library_page.dart';
 import 'saves_page.dart';
+import 'mini_game_page.dart'; // Yeni eklendi
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -102,7 +104,24 @@ class MainPage extends StatelessWidget {
               ),
               const SizedBox(height: 30),
               
-              // "Yeni Başla" kaldırıldı, çünkü 'assets/words.json' artık ana veri kaynağı değil.
+              // Rastgele Öğren (Bilinmeyenler) Kartı Eklendi
+              BuildMenuCard(
+                icon: Icons.casino, 
+                title: "Rastgele Öğren (Kelime Bombası)",
+                subtitle: "Bilinmeyen ve tekrar zamanı gelmiş kelimelerle hızlı test",
+                color: Colors.deepOrange, 
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      // Yeni oyun sayfasını çağır
+                      builder: (_) => const MiniGamePage(),
+                    ),
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 20),
               
               BuildMenuCard(
                 icon: Icons.library_books,
@@ -119,8 +138,8 @@ class MainPage extends StatelessWidget {
 
               BuildMenuCard(
                 icon: Icons.refresh,
-                title: "Devam Et",
-                subtitle: "Son bıraktığın yerden hemen devam et",
+                title: "Devam Et (Klasik Kart)",
+                subtitle: "Son bıraktığın yerden kartlarla devam et",
                 color: Colors.green,
                 onTap: () {
                   Navigator.push(

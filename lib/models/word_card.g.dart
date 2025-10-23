@@ -10,10 +10,14 @@ WordCard _$WordCardFromJson(Map<String, dynamic> json) => WordCard(
   englishWord: json['english'] as String,
   turkishTranslation: json['turkish'] as String,
   category: json['kategori'] as String,
+  reviewIntervalDays: (json['reviewIntervalDays'] as num?)?.toInt() ?? 0,
+  nextReviewTimestamp: json['nextReviewTimestamp'] as String?,
 );
 
 Map<String, dynamic> _$WordCardToJson(WordCard instance) => <String, dynamic>{
   'english': instance.englishWord,
   'turkish': instance.turkishTranslation,
   'kategori': instance.category,
+  'reviewIntervalDays': instance.reviewIntervalDays,
+  'nextReviewTimestamp': instance.nextReviewTimestamp,
 };

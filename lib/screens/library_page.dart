@@ -1,5 +1,7 @@
+// screens/categories_page.dart
 import 'package:flutter/material.dart';
 import '../models/deck_model.dart';
+import '../models/word_card.dart'; // Yeni eklendi
 import '../services/deck_service.dart';
 import '../services/firebase_service.dart';
 import '../services/save_service.dart';
@@ -21,9 +23,13 @@ class _LibraryPageState extends State<LibraryPage>
   // Durum listeleri
   List<Deck> _downloadedDecks = [];
   List<Deck> _recommendedDecks = [];
-  Set<String> _learnedWordsSet = {};
+  Set<String> _learnedWordsSet = {}; // Global öğrenilmiş kelimeler
   final Map<String, double> _progressCache = {};
-  final Map<String, bool> _loadingState = {}; // İndirme/Silme durumları için
+  final Map<String, bool> _loadingState = {};
+
+  // Yeni durumlar (Kategoriye göre gruplanmış kelimeler)
+  Map<String, List<WordCard>> _learnedWordsByCategory = {};
+  Map<String, List<WordCard>> _unlearnedWordsByCategory = {};
 
   bool _isLoading = true;
 
@@ -33,22 +39,64 @@ class _LibraryPageState extends State<LibraryPage>
     _loadLibraryData();
   }
 
+  // Helper method: Groups a list of WordCards by their category
+  Map<String, List<WordCard>> _groupWordsByCategory(List<WordCard> words) {
+    final Map<String, List<WordCard>> grouped = {};
+    for (var word in words) {
+      grouped.putIfAbsent(word.category, () => []).add(word);
+    }
+    // Öğrenilen kelimeleri SRS tekrar tarihine göre sırala
+    grouped.forEach((key, value) {
+        value.sort((a, b) => 
+            (a.nextReviewTimestamp ?? DateTime.now().toIso8601String())
+            .compareTo(b.nextReviewTimestamp ?? DateTime.now().toIso8601String()));
+    });
+    return grouped;
+  }
+
   Future<void> _loadLibraryData() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
       _loadingState.clear();
+      _learnedWordsByCategory.clear();
+      _unlearnedWordsByCategory.clear();
     });
 
     try {
-      // 1. Global ilerlemeyi çek (SaveService'ten)
+      // 1. Global ilerlemeyi çek
       final progressData = await SaveService.loadLast();
-      _learnedWordsSet = (progressData['learned'] ?? []).map((w) => w.englishWord).toSet();
-
-      // 2. İndirilen desteleri çek (DeckService'ten)
-      final downloaded = await _deckService.getDownloadedDecks();
+      final List<WordCard> allLearned = progressData["learned"] ?? [];
       
-      // 3. Önerilen desteleri çek (FirebaseService'ten)
+      // Tekrar zamanı gelenleri bul
+      final now = DateTime.now();
+      final dueWords = allLearned.where((word) {
+        if (word.nextReviewTimestamp == null) return false;
+        try {
+          final nextReview = DateTime.parse(word.nextReviewTimestamp!);
+          return nextReview.isBefore(now);
+        } catch (e) {
+          return true;
+        }
+      }).toList();
+      
+      // Tekrar zamanı GELMEYENLER (yani öğrenilmiş sayılanlar)
+      final nonDueLearned = allLearned.where((word) => !dueWords.contains(word)).toList();
+
+      // Öğrenilecekler: main + unlearned + due (tekrar gerekenler)
+      final List<WordCard> allUnlearnedOrDue = [
+        ...(progressData["main"] ?? []),
+        ...(progressData["unlearned"] ?? []),
+        ...dueWords,
+      ];
+
+      // 2. Öğrenilmiş/Tekrar Gereken kelimeleri kategoriye göre grupla
+      _learnedWordsByCategory = _groupWordsByCategory(nonDueLearned);
+      _unlearnedWordsByCategory = _groupWordsByCategory(allUnlearnedOrDue);
+      _learnedWordsSet = nonDueLearned.map((w) => w.englishWord).toSet(); // Set'i nonDue'ya göre kur
+
+      // 3. İndirilen ve Önerilen desteleri çek
+      final downloaded = await _deckService.getDownloadedDecks();
       final recommended = await _firebaseService.fetchRecommendedDecks();
 
       // 4. İndirilenler için ilerlemeyi hesapla
@@ -83,13 +131,24 @@ class _LibraryPageState extends State<LibraryPage>
       final words = await _deckService.loadDeckFromLocal(deck.id);
       if (words.isEmpty) return 0.0;
       
+      // Öğrenilmiş sayılan: nextReviewTimestamp'i NULL olmayan veya tekrar tarihi gelmemiş olanlar
       int learnedCount = 0;
+      final now = DateTime.now();
+
       for (final word in words) {
-        if (_learnedWordsSet.contains(word.englishWord)) {
-          learnedCount++;
+        if (word.nextReviewTimestamp != null) {
+            try {
+              final nextReview = DateTime.parse(word.nextReviewTimestamp!);
+              if (nextReview.isAfter(now)) {
+                 learnedCount++;
+              }
+            } catch (e) {
+              // Hatalı timestamp durumunda öğrenilmemiş sayılır
+            }
         }
       }
       return learnedCount / words.length;
+
     } catch (e) {
       return 0.0;
     }
@@ -179,19 +238,36 @@ class _LibraryPageState extends State<LibraryPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // kitaplığım Bölümü
-                    _buildDeckSectionTitle("kitaplığım"),
+                    // İndirilenler Bölümü
+                    _buildDeckSectionTitle("İndirilen Desteler"),
                     _buildDeckListView(
                       decks: _downloadedDecks,
                       isDownloadedSection: true,
                     ),
                     const SizedBox(height: 20),
+
                     // Önerilenler Bölümü
-                    _buildDeckSectionTitle("Önerilenler"),
+                    _buildDeckSectionTitle("Önerilen Desteler"),
                     _buildDeckListView(
                       decks: _recommendedDecks,
                       isDownloadedSection: false,
                     ),
+
+                    const SizedBox(height: 30),
+
+                    // Öğrenilen Kelimeler Bölümü (Yeni Eklendi)
+                    _buildWordsSectionTitle(
+                        "✅ Öğrenilen Kelimeler (${_learnedWordsByCategory.values.fold(0, (sum, list) => sum + list.length)})"),
+                    _buildGroupedWordsList(_learnedWordsByCategory,
+                        isLearnedSection: true),
+
+                    const SizedBox(height: 20),
+
+                    // Öğrenilecekler / Tekrar Gerekenler Bölümü (Yeni Eklendi)
+                    _buildWordsSectionTitle(
+                        "🧠 Öğrenilecek / Tekrar Gerekenler (${_unlearnedWordsByCategory.values.fold(0, (sum, list) => sum + list.length)})"),
+                    _buildGroupedWordsList(_unlearnedWordsByCategory,
+                        isLearnedSection: false),
                   ],
                 ),
               ),
@@ -199,7 +275,7 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
-  // "kitaplığım" / "Önerilenler" başlığı
+  // "İndirilenler" / "Önerilenler" başlığı
   Widget _buildDeckSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -211,6 +287,87 @@ class _LibraryPageState extends State<LibraryPage>
           color: Theme.of(context).colorScheme.primary,
         ),
       ),
+    );
+  }
+
+  // Yeni Başlık Stili
+  Widget _buildWordsSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Colors.indigo.shade800,
+        ),
+      ),
+    );
+  }
+
+  // Yeni Grup Listesi Widget'ı
+  Widget _buildGroupedWordsList(Map<String, List<WordCard>> groupedWords,
+      {required bool isLearnedSection}) {
+    if (groupedWords.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Text(
+          isLearnedSection
+              ? "Henüz öğrenilmiş kelime yok."
+              : "Tebrikler! Öğrenilecek/Tekrar Gereken kelimeniz kalmadı.",
+          style: const TextStyle(fontSize: 14, color: Colors.black54),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: groupedWords.keys.length,
+      itemBuilder: (context, index) {
+        final category = groupedWords.keys.elementAt(index);
+        final words = groupedWords[category]!;
+        
+        final subtitleText = isLearnedSection
+            ? "Tekrar Günü: ${words.first.nextReviewTimestamp != null ? words.first.nextReviewTimestamp!.substring(0, 10) : 'Yok'}"
+            : "Tekrar etmek için tıkla";
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: ExpansionTile(
+            title: Text("$category (${words.length})"),
+            subtitle: Text(subtitleText),
+            initiallyExpanded: false,
+            leading: Icon(isLearnedSection ? Icons.check_circle_outline : Icons.pending_actions,
+                color: isLearnedSection ? Colors.green : Colors.deepOrange),
+            children: [
+              ListTile(
+                leading: const Icon(Icons.play_arrow, color: Colors.blueAccent),
+                title: Text("$category grubundaki ${words.length} kelimeyi çalış"),
+                onTap: () {
+                  // FlashcardPage'e bu kategorideki kelimeleri gönder
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FlashcardPage(words: words),
+                    ),
+                  ).then((_) => _loadLibraryData());
+                },
+              ),
+              ...words.map((word) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: ListTile(
+                      title: Text(word.englishWord),
+                      subtitle: Text(word.turkishTranslation),
+                      trailing: isLearnedSection ? Text(word.nextReviewTimestamp != null 
+                        ? word.nextReviewTimestamp!.substring(0, 10) : 'Tekrar yok') : null,
+                      dense: true,
+                    ),
+                  )),
+            ],
+          ),
+        );
+      },
     );
   }
 
