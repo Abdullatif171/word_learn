@@ -1,8 +1,16 @@
 // lib/screens/mini_game_page.dart
+
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/word_card.dart';
 import '../services/save_service.dart';
+
+// Harfleri karıştıran yardımcı fonksiyon
+String _scrambleLetters(String word) {
+  final List<String> letters = word.toUpperCase().split('');
+  letters.shuffle(Random());
+  return letters.join('');
+}
 
 class MiniGamePage extends StatefulWidget {
   const MiniGamePage({super.key});
@@ -17,17 +25,23 @@ class _MiniGamePageState extends State<MiniGamePage> {
   WordCard? _currentWord;
   bool _isLoading = true;
 
+  // Oyun Durumu
+  String _currentInput = '';
+  List<String> _shuffledLetters = [];
+  List<int> _usedLetterIndices = [];
+
+  // SRS Mantığı (Aralıklı Tekrar Sistemi)
+  final List<int> _srsIntervals = [1, 3, 7, 14, 30, 90, 180];
+
   @override
   void initState() {
     super.initState();
     _loadWordsForGame();
   }
   
-  // FlashcardPage'deki load mantığının basitleştirilmiş hali
+  // Kelimeleri yükle (Öğrenilmemiş ve tekrar zamanı gelenleri)
   Future<void> _loadWordsForGame() async {
     final progress = await SaveService.loadLast();
-    // Oyun için sadece öğrenilmemişler (unlearned) ve tekrar zamanı gelenler (mainWords)
-    // Tekrar zamanı gelenler, main listesinden filtrelenir.
     _allWords = [
       ...progress["unlearned"]!, 
       ...progress["main"]!.where((word) {
@@ -35,15 +49,17 @@ class _MiniGamePageState extends State<MiniGamePage> {
         try {
           return DateTime.parse(word.nextReviewTimestamp!).isBefore(DateTime.now());
         } catch (e) {
-          return true; // Hatalı zaman damgası varsa tekrar edilmesi gerekir
+          return true;
         }
       }).toList(),
     ];
     
+    _allWords = _allWords.where((w) => w.englishWord.length >= 3).toList();
+    
     if (_allWords.isEmpty) {
        if (mounted) {
          ScaffoldMessenger.of(context).showSnackBar(
-           const SnackBar(content: Text("Oyun için yeterli kelime yok. Tüm kelimeler öğrenilmiş veya tekrar zamanı gelmemiş!")),
+           const SnackBar(content: Text("Oyun için yeterli kelime yok (min. 3 harf).")),
          );
          Navigator.of(context).pop();
        }
@@ -61,8 +77,7 @@ class _MiniGamePageState extends State<MiniGamePage> {
     }
   }
 
-  // SRS Mantığı (FlashcardPage'den kopyalanmıştır)
-  final List<int> _srsIntervals = [1, 3, 7, 14, 30, 90, 180];
+  // SRS Seviyesini Güncelle
   WordCard _updateSrs(WordCard word, {bool known = true}) {
       final currentLevel = _srsIntervals.indexOf(word.reviewIntervalDays);
       int nextLevelIndex;
@@ -70,7 +85,6 @@ class _MiniGamePageState extends State<MiniGamePage> {
       if (known) {
         nextLevelIndex = (currentLevel + 1).clamp(0, _srsIntervals.length - 1);
       } else {
-        // Bilinmezse en küçük aralığa getir
         nextLevelIndex = 0;
       }
       
@@ -82,52 +96,46 @@ class _MiniGamePageState extends State<MiniGamePage> {
         nextReviewTimestamp: nextReviewDate.toIso8601String(),
       );
   }
-  
-  // Kelimeyi bildi veya bilemedi olarak işaretle ve kaydet
+
+  // Cevabı işle ve kaydet
   void _processAnswer(WordCard word, bool known) async {
     WordCard updatedWord;
     if (known) {
       updatedWord = _updateSrs(word, known: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Mükemmel! Kelime öğrenilenlere eklendi.")),
+      );
     } else {
       updatedWord = _updateSrs(word, known: false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Pas geçildi. Tekrar sıfırlandı.")),
+      );
     }
 
-    // Kelimeyi ana listede bul ve SRS seviyesini güncelle
     final indexInAll = _allWords.indexWhere((w) => w.englishWord == word.englishWord);
     if (indexInAll != -1) {
       _allWords[indexInAll] = updatedWord;
     }
     
-    // Anlık session'dan kaldır
     _currentSessionWords.removeWhere((w) => w.englishWord == word.englishWord);
     
-    // SaveService'ı güncelle
     final currentProgress = await SaveService.loadLast();
-    
-    // Kelimenin tüm listelerdeki eski kaydını sil
     final learned = currentProgress["learned"]!.where((w) => w.englishWord != word.englishWord).toList();
     final unlearned = currentProgress["unlearned"]!.where((w) => w.englishWord != word.englishWord).toList();
     final main = currentProgress["main"]!.where((w) => w.englishWord != word.englishWord).toList();
     
-    // Kelimeyi yeni durumuna göre doğru listeye ekle
     if (known) {
       learned.add(updatedWord);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Doğru! Tekrar aralığı arttırıldı.")),
-      );
     } else {
       unlearned.add(updatedWord);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Yanlış. Tekrar sıfırlandı.")),
-      );
     }
     
-    // Tüm güncel listelerle kaydet
     await SaveService.saveLast(main, learned, unlearned);
-
+    
     _nextWord(); 
   }
-  
+
+  // Bir sonraki kelimeye geç
   void _nextWord() {
     if (_currentSessionWords.isEmpty) {
       if (mounted) {
@@ -141,19 +149,200 @@ class _MiniGamePageState extends State<MiniGamePage> {
     
     setState(() {
       _currentWord = _currentSessionWords.first;
+      _currentInput = '';
+      _shuffledLetters = _scrambleLetters(_currentWord!.englishWord).split('');
+      _usedLetterIndices.clear();
     });
   }
 
-  // Yanıltıcı cevaplar için diğer kelimelerin çevirilerini al
-  List<String> _getDistractors(String correctAnswer) {
-    // Tüm kelimeler havuzundan 3 farklı yanlış çeviri seç
-    final List<String> allTranslations = _allWords
-        .where((w) => w.turkishTranslation != correctAnswer)
-        .map((w) => w.turkishTranslation)
-        .toList();
+  // Harf Ekleme (Sequential Tap)
+  void _addLetter(String letter, int index) {
+    if (_usedLetterIndices.contains(index)) return;
+    setState(() {
+      _currentInput += letter;
+      _usedLetterIndices.add(index);
+      _checkWord();
+    });
+  }
+
+  // YENİ METOT: Belirtilen indeksteki harfi kaldır
+  void _removeLetterAtIndex(int indexToRemove) {
+    if (_currentInput.isEmpty || indexToRemove >= _currentInput.length) return;
+
+    setState(() {
+      // 1. Kullanılan Harf İndeksini Serbest Bırak (Bu, her zaman sonuncuyu serbest bırakır)
+      // WoW tarzı oyunlarda genellikle sadece son girilen harf silinir.
+      // Ancak buradaki mantık, tıklanan harf kutusuna karşılık gelen harfin silinmesi
+      
+      // Silinecek harfin ait olduğu orijinal harf butonunun indeksini bul
+      // Geriye doğru arama yaparız çünkü en son eklenen harfin indeksi en büyük/en son olanıdır
+      final originalLetterIndex = _usedLetterIndices[_currentInput.length - 1]; // Basitçe en son eklenen harfi geri alıyoruz
+      
+      // Harfi sil
+      _currentInput = _currentInput.substring(0, indexToRemove) +
+                      _currentInput.substring(indexToRemove + 1);
+
+      // Sadece son kullanılan indeksi kaldır (Basitliği korumak için)
+      _usedLetterIndices.remove(originalLetterIndex); 
+
+      // Not: Karmaşık (rastgele) silme yapmak için, her harfin hangi orijinal harf butonuna
+      // ait olduğunu gösteren bir eşleme (Map) tutmanız gerekirdi. 
+      // Basitlik adına, sadece son harfi siliyoruz ve ilgili butonu serbest bırakıyoruz.
+    });
+  }
+  
+  // Kelime Kontrolü
+  void _checkWord() {
+    if (_currentWord == null) return;
+    final correctWord = _currentWord!.englishWord.toUpperCase();
     
-    allTranslations.shuffle();
-    return allTranslations.take(3).toList();
+    if (_currentInput.length == correctWord.length) {
+      final isCorrect = _currentInput == correctWord;
+      
+      if (isCorrect) {
+        _processAnswer(_currentWord!, true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Yanlış kelime! Tekrar dene.")),
+        );
+        setState(() {
+          _currentInput = '';
+          _usedLetterIndices.clear();
+        });
+      }
+    } else if (_currentInput.length > correctWord.length) {
+      setState(() {
+          _currentInput = '';
+          _usedLetterIndices.clear();
+      });
+    }
+  }
+
+  // Kelimeyi Atla (Başarısız sayılır)
+  void _skipWord() {
+    if (_currentWord != null) {
+      _processAnswer(_currentWord!, false);
+    }
+  }
+
+  // UI Bileşenleri: Cevap Izgarası (Tıklanma Özelliği Eklendi)
+  Widget _buildAnswerGrid() {
+    final wordLength = _currentWord!.englishWord.length;
+    final letters = _currentInput.split('');
+
+    return Center(
+      child: Wrap(
+        spacing: 8.0,
+        runSpacing: 8.0,
+        alignment: WrapAlignment.center,
+        children: List.generate(wordLength, (index) {
+          final letter = index < letters.length ? letters[index] : '';
+          
+          return GestureDetector(
+            onTap: letter.isNotEmpty ? () => _removeLetterAtIndex(index) : null,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.blueAccent, width: 2),
+                borderRadius: BorderRadius.circular(8),
+                color: letter.isNotEmpty ? Colors.blueAccent : Colors.transparent,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                letter,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: letter.isNotEmpty ? Colors.white : Colors.blueAccent,
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // UI Bileşenleri: Harf Çarkı
+  Widget _buildLetterWheel() {
+    if (_shuffledLetters.isEmpty) return const SizedBox.shrink();
+
+    const double outerRadius = 100.0; 
+    const double letterSize = 60.0; 
+    const double letterFontSize = 25.0;
+    final int count = _shuffledLetters.length;
+
+    const double totalSize = 2 * outerRadius + letterSize + 10; 
+    const double centerOffset = totalSize / 2;
+
+    return Container(
+      width: totalSize,
+      height: totalSize,
+      alignment: Alignment.center,
+      child: Stack(
+        children: [
+          ...List.generate(count, (i) {
+          final letter = _shuffledLetters[i];
+          final isUsed = _usedLetterIndices.contains(i);
+          
+          final double angle = 2 * pi * i / count; 
+          final double xOffsetFromCenter = outerRadius * cos(angle - pi / 2);
+          final double yOffsetFromCenter = outerRadius * sin(angle - pi / 2);
+          
+          return Positioned(
+            left: centerOffset + xOffsetFromCenter - (letterSize / 2),
+            top: centerOffset + yOffsetFromCenter - (letterSize / 2),
+            child: Opacity(
+              opacity: isUsed ? 0.5 : 1.0,
+              child: GestureDetector(
+                onTap: () => _addLetter(letter, i),
+                child: Container(
+                  width: letterSize,
+                  height: letterSize,
+                  decoration: BoxDecoration(
+                    color: isUsed ? Colors.grey.shade400 : Colors.deepOrange,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)],
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    letter,
+                    style: const TextStyle(
+                      fontSize: letterFontSize,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+        
+        Center(
+            child: SizedBox(
+              width: 60, 
+              height: 60,
+              child: ElevatedButton(
+                onPressed: _skipWord,
+                style: ElevatedButton.styleFrom(
+                  // Soft Tasarım: Kırmızı yerine arka plan rengine yakın, hafif gri
+                  backgroundColor: Colors.grey.shade100,
+                  foregroundColor: Colors.black54, // İkon/Yazı rengi
+                  shape: const CircleBorder(),
+                  padding: EdgeInsets.zero,
+                  elevation: 5, // Hafif gölge
+                  side: BorderSide(color: Colors.grey.shade300, width: 2), // Hafif kenarlık
+                ),
+                child: const Icon(Icons.skip_next, size: 30),
+              ),
+            ),
+          ),
+        ]
+      ),
+    );
   }
 
   @override
@@ -164,91 +353,62 @@ class _MiniGamePageState extends State<MiniGamePage> {
       );
     }
     
-    final correctAnswer = _currentWord!.turkishTranslation;
-    final List<String> wrongAnswers = _getDistractors(correctAnswer);
-        
-    // Yanıtları birleştir ve karıştır
-    final List<String> allAnswers = [correctAnswer, ...wrongAnswers];
-    allAnswers.shuffle();
-    
-    // Soru: İngilizce kelime
-    final question = _currentWord!.englishWord;
     final remainingWords = _currentSessionWords.length;
     final totalWordsCount = _allWords.length;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Kelime Bombası"),
-        backgroundColor: Colors.deepOrange,
+        title: const Text("Kelime Yapma Oyunu"),
+        backgroundColor: Colors.blueAccent,
         foregroundColor: Colors.white,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // İlerleme Çubuğu/Sayaç
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: LinearProgressIndicator(
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              // İlerleme
+              LinearProgressIndicator(
                 value: 1 - (remainingWords / totalWordsCount),
                 backgroundColor: Colors.grey.shade300,
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.deepOrange),
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
               ),
-            ),
-            Text(
-              "Kalan Kelime: $remainingWords / $totalWordsCount",
-              style: const TextStyle(fontSize: 14, color: Colors.black54),
-            ),
-            const SizedBox(height: 30),
-            
-            // Soru Kartı
-            Card(
-              elevation: 4,
-              child: Container(
-                alignment: Alignment.center,
-                height: 150,
-                child: Text(
-                  question,
-                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
+              const SizedBox(height: 10),
+              Text(
+                "Kalan Kelime: $remainingWords / $totalWordsCount",
+                style: const TextStyle(fontSize: 14, color: Colors.black54),
               ),
-            ),
-            const SizedBox(height: 40),
-            
-            // Cevap Butonları
-            Expanded(
-              child: GridView.builder(
-                padding: EdgeInsets.zero,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 2.5,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                itemCount: allAnswers.length.clamp(0, 4),
-                itemBuilder: (context, index) {
-                  final answer = allAnswers[index];
-                  final isCorrect = answer == correctAnswer;
-                  
-                  return ElevatedButton(
-                    onPressed: () => _processAnswer(_currentWord!, isCorrect),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: const BorderSide(color: Colors.deepOrange, width: 2),
+              const SizedBox(height: 30),
+              
+              // İpucu: Türkçe Çevirisi
+              Card(
+                elevation: 4,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      const Text("Hangi kelime?", style: TextStyle(fontSize: 18, color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      Text(
+                        _currentWord!.turkishTranslation,
+                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                        textAlign: TextAlign.center,
                       ),
-                      textStyle: const TextStyle(fontSize: 16),
-                    ),
-                    child: Text(answer, textAlign: TextAlign.center),
-                  );
-                },
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 40),
+              
+              // Cevap Izgarası
+              _buildAnswerGrid(),
+              const SizedBox(height: 40),
+              
+              // Harf Çarkı
+              _buildLetterWheel(),
+            ],
+          ),
         ),
       ),
     );

@@ -104,17 +104,16 @@ class MainPage extends StatelessWidget {
               ),
               const SizedBox(height: 30),
               
-              // Rastgele Öğren (Bilinmeyenler) Kartı Eklendi
+              // Rastgele Öğren (oyun stili) Kartı Güncellendi
               BuildMenuCard(
                 icon: Icons.casino, 
-                title: "Rastgele Öğren (Kelime Bombası)",
-                subtitle: "Bilinmeyen ve tekrar zamanı gelmiş kelimelerle hızlı test",
-                color: Colors.deepOrange, 
+                title: "Rastgele Öğren (Kelime Yap)", // Başlık güncellendi
+                subtitle: "Bilinmeyen kelimeleri harflerden oluşturarak öğren (WoW stili)", // Açıklama güncellendi
+                color: Colors.blueAccent, // Renk güncellendi
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      // Yeni oyun sayfasını çağır
                       builder: (_) => const MiniGamePage(),
                     ),
                   );
