@@ -1,11 +1,13 @@
-// screens/categories_page.dart
+// screens/library_page.dart
 import 'package:flutter/material.dart';
+import 'package:word_learn/screens/home_page.dart'; // YENİ EKLENDİ (Puan yenileme için)
+import 'package:word_learn/screens/study_session_page.dart'; // YENİ EKLENDİ
 import '../models/deck_model.dart';
-import '../models/word_card.dart'; // Yeni eklendi
+// import '../models/word_card.dart'; // Bu dosyada artık doğrudan kullanılmıyor
 import '../services/deck_service.dart';
 import '../services/firebase_service.dart';
-import '../services/save_service.dart';
-import 'flashcard_page.dart';
+// import '../services/save_service.dart'; // Artık bu sayfada kullanılmıyor
+// import 'flashcard_page.dart'; // Artık kullanılmıyor
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -23,13 +25,8 @@ class _LibraryPageState extends State<LibraryPage>
   // Durum listeleri
   List<Deck> _downloadedDecks = [];
   List<Deck> _recommendedDecks = [];
-  Set<String> _learnedWordsSet = {}; // Global öğrenilmiş kelimeler
   final Map<String, double> _progressCache = {};
   final Map<String, bool> _loadingState = {};
-
-  // Yeni durumlar (Kategoriye göre gruplanmış kelimeler)
-  Map<String, List<WordCard>> _learnedWordsByCategory = {};
-  Map<String, List<WordCard>> _unlearnedWordsByCategory = {};
 
   bool _isLoading = true;
 
@@ -39,489 +36,284 @@ class _LibraryPageState extends State<LibraryPage>
     _loadLibraryData();
   }
 
-  // Helper method: Groups a list of WordCards by their category
-  Map<String, List<WordCard>> _groupWordsByCategory(List<WordCard> words) {
-    final Map<String, List<WordCard>> grouped = {};
-    for (var word in words) {
-      grouped.putIfAbsent(word.category, () => []).add(word);
-    }
-    // Öğrenilen kelimeleri SRS tekrar tarihine göre sırala
-    grouped.forEach((key, value) {
-        value.sort((a, b) => 
-            (a.nextReviewTimestamp ?? DateTime.now().toIso8601String())
-            .compareTo(b.nextReviewTimestamp ?? DateTime.now().toIso8601String()));
-    });
-    return grouped;
-  }
-
   Future<void> _loadLibraryData() async {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = true;
-      _loadingState.clear();
-      _learnedWordsByCategory.clear();
-      _unlearnedWordsByCategory.clear();
-    });
+    setState(() => _isLoading = true);
 
     try {
-      // 1. Global ilerlemeyi çek
-      final progressData = await SaveService.loadLast();
-      final List<WordCard> allLearned = progressData["learned"] ?? [];
-      
-      // Tekrar zamanı gelenleri bul
-      final now = DateTime.now();
-      final dueWords = allLearned.where((word) {
-        if (word.nextReviewTimestamp == null) return false;
-        try {
-          final nextReview = DateTime.parse(word.nextReviewTimestamp!);
-          return nextReview.isBefore(now);
-        } catch (e) {
-          return true;
-        }
+      // 1. İndirilen desteleri al
+      _downloadedDecks = await _deckService.getDownloadedDecks();
+
+      // 2. Önerilen desteleri al (Firebase'den)
+      _recommendedDecks = await _firebaseService.fetchRecommendedDecks();
+
+      // 3. İlerleme hesaplamalarını yap (paralel olarak)
+      _progressCache.clear();
+      final progressFutures = _downloadedDecks.map((deck) async {
+        final progress = await _calculateDeckProgress(deck.id);
+        return {deck.id: progress};
       }).toList();
-      
-      // Tekrar zamanı GELMEYENLER (yani öğrenilmiş sayılanlar)
-      final nonDueLearned = allLearned.where((word) => !dueWords.contains(word)).toList();
 
-      // Öğrenilecekler: main + unlearned + due (tekrar gerekenler)
-      final List<WordCard> allUnlearnedOrDue = [
-        ...(progressData["main"] ?? []),
-        ...(progressData["unlearned"] ?? []),
-        ...dueWords,
-      ];
-
-      // 2. Öğrenilmiş/Tekrar Gereken kelimeleri kategoriye göre grupla
-      _learnedWordsByCategory = _groupWordsByCategory(nonDueLearned);
-      _unlearnedWordsByCategory = _groupWordsByCategory(allUnlearnedOrDue);
-      _learnedWordsSet = nonDueLearned.map((w) => w.englishWord).toSet(); // Set'i nonDue'ya göre kur
-
-      // 3. İndirilen ve Önerilen desteleri çek
-      final downloaded = await _deckService.getDownloadedDecks();
-      final recommended = await _firebaseService.fetchRecommendedDecks();
-
-      // 4. İndirilenler için ilerlemeyi hesapla
-      await _updateProgressForDecks(downloaded);
-
-      if (!mounted) return;
-      setState(() {
-        _downloadedDecks = downloaded;
-        _recommendedDecks = recommended;
-        _isLoading = false;
-      });
+      final results = await Future.wait(progressFutures);
+      for (var res in results) {
+        _progressCache.addAll(res);
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Kütüphane yüklenemedi: $e")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Veri yüklenirken hata: $e')),
+        );
+      }
+    }
+
+    if (mounted) {
       setState(() => _isLoading = false);
     }
   }
 
-  // İndirilmiş destelerin ilerlemesini hesaplar
-  Future<void> _updateProgressForDecks(List<Deck> decks) async {
-    for (final deck in decks) {
-      final progress = await _calculateProgress(deck);
-      _progressCache[deck.id] = progress;
-    }
-  }
-
-  Future<double> _calculateProgress(Deck deck) async {
+  // YENİ METOT: Bir destenin ilerlemesini (öğrenilen/toplam) hesaplar
+  Future<double> _calculateDeckProgress(String deckId) async {
     try {
-      // Kelimeleri yerelden yükle
-      final words = await _deckService.loadDeckFromLocal(deck.id);
+      final words = await _deckService.loadDeckFromLocal(deckId);
       if (words.isEmpty) return 0.0;
-      
-      // Öğrenilmiş sayılan: nextReviewTimestamp'i NULL olmayan veya tekrar tarihi gelmemiş olanlar
-      int learnedCount = 0;
-      final now = DateTime.now();
 
-      for (final word in words) {
-        if (word.nextReviewTimestamp != null) {
-            try {
-              final nextReview = DateTime.parse(word.nextReviewTimestamp!);
-              if (nextReview.isAfter(now)) {
-                 learnedCount++;
-              }
-            } catch (e) {
-              // Hatalı timestamp durumunda öğrenilmemiş sayılır
-            }
-        }
-      }
+      // Öğrenilmiş sayılan kelimeler (SRS seviyesi 0'dan büyük olanlar)
+      final learnedCount =
+          words.where((w) => w.reviewIntervalDays > 0).length;
       return learnedCount / words.length;
-
     } catch (e) {
       return 0.0;
     }
   }
 
-  void _onDeckTapped(Deck deck) async {
-    try {
-      // Desteyi yerel depodan yükle
-      final words = await _deckService.loadDeckFromLocal(deck.id);
-      if (!mounted) return;
-      // FlashcardPage'e git
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => FlashcardPage(words: words),
-        ),
-      );
-      // Geri dönüldüğünde ilerlemeyi ve listeyi yenile
-      _loadLibraryData();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${deck.name} destesi açılamadı: $e")),
-      );
-    }
-  }
-
-  void _onDownloadTapped(Deck deck) async {
-    if (_loadingState[deck.id] == true) return; // Zaten işlemde
-    
+  // Deste indirme metodu
+  Future<void> _downloadDeck(Deck deck) async {
     setState(() => _loadingState[deck.id] = true);
     try {
       await _deckService.downloadDeck(deck);
-      await _loadLibraryData(); // Listeyi ve ilerlemeyi yenile
+      // İndirme sonrası kütüphaneyi yenile
+      await _loadLibraryData();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${deck.name} indirilemedi: $e")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("${deck.name} indirilemedi: $e")),
+        );
+      }
     } finally {
-      setState(() => _loadingState[deck.id] = false);
+      if (mounted) {
+        setState(() => _loadingState.remove(deck.id));
+      }
     }
   }
 
-  void _onDeleteTapped(Deck deck) async {
-    if (_loadingState[deck.id] == true) return; // Zaten işlemde
+  // Deste silme metodu
+  Future<void> _deleteDeck(Deck deck) async {
+    final bool? confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("${deck.name} Silinsin mi?"),
+        content: const Text(
+            "Bu desteyi ve ilerlemenizi silmek istediğinizden emin misiniz?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("İptal"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text("Sil", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
 
-    setState(() => _loadingState[deck.id] = true);
-    try {
-      await _deckService.deleteDeck(deck.id);
-      _progressCache.remove(deck.id); // İlerleme önbelleğini temizle
-      await _loadLibraryData(); // Listeyi yenile
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("${deck.name} silinemedi: $e")),
-      );
-    } finally {
-      setState(() => _loadingState[deck.id] = false);
+    if (confirm == true) {
+      setState(() => _loadingState[deck.id] = true);
+      try {
+        await _deckService.deleteDeck(deck.id);
+        // Silme sonrası kütüphaneyi yenile
+        await _loadLibraryData();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("${deck.name} silinemedi: $e")),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _loadingState.remove(deck.id));
+        }
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin için
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Scaffold(
-      backgroundColor: colorScheme.surfaceContainerHighest,
       appBar: AppBar(
-        title: const Text('Kütüphane'), // Başlık güncellendi
+        title: const Text("Kütüphane"),
         centerTitle: true,
-        elevation: 4,
-        backgroundColor: colorScheme.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadLibraryData,
-            tooltip: "Yenile",
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadLibraryData,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // İndirilenler Bölümü
-                    _buildDeckSectionTitle("İndirilen Desteler"),
-                    _buildDeckListView(
-                      decks: _downloadedDecks,
-                      isDownloadedSection: true,
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Önerilenler Bölümü
-                    _buildDeckSectionTitle("Önerilen Desteler"),
-                    _buildDeckListView(
-                      decks: _recommendedDecks,
-                      isDownloadedSection: false,
-                    ),
-
-                    const SizedBox(height: 30),
-
-                    // Öğrenilen Kelimeler Bölümü (Yeni Eklendi)
-                    _buildWordsSectionTitle(
-                        "✅ Öğrenilen Kelimeler (${_learnedWordsByCategory.values.fold(0, (sum, list) => sum + list.length)})"),
-                    _buildGroupedWordsList(_learnedWordsByCategory,
-                        isLearnedSection: true),
-
-                    const SizedBox(height: 20),
-
-                    // Öğrenilecekler / Tekrar Gerekenler Bölümü (Yeni Eklendi)
-                    _buildWordsSectionTitle(
-                        "🧠 Öğrenilecek / Tekrar Gerekenler (${_unlearnedWordsByCategory.values.fold(0, (sum, list) => sum + list.length)})"),
-                    _buildGroupedWordsList(_unlearnedWordsByCategory,
-                        isLearnedSection: false),
-                  ],
-                ),
+              child: ListView(
+                padding: const EdgeInsets.all(16.0),
+                children: [
+                  _buildSectionTitle(
+                      "📚 İndirilen Destelerim (${_downloadedDecks.length})"),
+                  _buildDownloadedDecks(),
+                  const SizedBox(height: 24),
+                  _buildSectionTitle(
+                      "✨ Önerilen Desteler (${_recommendedDecks.length})"),
+                  _buildRecommendedDecks(),
+                ],
               ),
             ),
     );
   }
 
-  // "İndirilenler" / "Önerilenler" başlığı
-  Widget _buildDeckSectionTitle(String title) {
+  Widget _buildSectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      padding: const EdgeInsets.only(bottom: 8.0),
       child: Text(
         title,
-        style: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-          color: Theme.of(context).colorScheme.primary,
-        ),
+        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
       ),
     );
   }
 
-  // Yeni Başlık Stili
-  Widget _buildWordsSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: Colors.indigo.shade800,
-        ),
-      ),
-    );
-  }
-
-  // Yeni Grup Listesi Widget'ı
-  Widget _buildGroupedWordsList(Map<String, List<WordCard>> groupedWords,
-      {required bool isLearnedSection}) {
-    if (groupedWords.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        child: Text(
-          isLearnedSection
-              ? "Henüz öğrenilmiş kelime yok."
-              : "Tebrikler! Öğrenilecek/Tekrar Gereken kelimeniz kalmadı.",
-          style: const TextStyle(fontSize: 14, color: Colors.black54),
+  // İndirilen desteleri listeler
+  Widget _buildDownloadedDecks() {
+    if (_downloadedDecks.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child:
+              Text("Henüz bir deste indirmediniz. Aşağıdan bir deste seçin."),
         ),
       );
     }
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: groupedWords.keys.length,
-      itemBuilder: (context, index) {
-        final category = groupedWords.keys.elementAt(index);
-        final words = groupedWords[category]!;
-        
-        final subtitleText = isLearnedSection
-            ? "Tekrar Günü: ${words.first.nextReviewTimestamp != null ? words.first.nextReviewTimestamp!.substring(0, 10) : 'Yok'}"
-            : "Tekrar etmek için tıkla";
-
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: ExpansionTile(
-            title: Text("$category (${words.length})"),
-            subtitle: Text(subtitleText),
-            initiallyExpanded: false,
-            leading: Icon(isLearnedSection ? Icons.check_circle_outline : Icons.pending_actions,
-                color: isLearnedSection ? Colors.green : Colors.deepOrange),
-            children: [
-              ListTile(
-                leading: const Icon(Icons.play_arrow, color: Colors.blueAccent),
-                title: Text("$category grubundaki ${words.length} kelimeyi çalış"),
-                onTap: () {
-                  // FlashcardPage'e bu kategorideki kelimeleri gönder
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => FlashcardPage(words: words),
-                    ),
-                  ).then((_) => _loadLibraryData());
-                },
-              ),
-              ...words.map((word) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: ListTile(
-                      title: Text(word.englishWord),
-                      subtitle: Text(word.turkishTranslation),
-                      trailing: isLearnedSection ? Text(word.nextReviewTimestamp != null 
-                        ? word.nextReviewTimestamp!.substring(0, 10) : 'Tekrar yok') : null,
-                      dense: true,
-                    ),
-                  )),
-            ],
-          ),
+    return Column(
+      children: _downloadedDecks.map((deck) {
+        final progress = _progressCache[deck.id] ?? 0.0;
+        final isLoading = _loadingState[deck.id] ?? false;
+        return _buildDeckCard(
+          deck: deck,
+          isDownloaded: true,
+          progress: progress,
+          isLoading: isLoading,
         );
-      },
+      }).toList(),
     );
   }
 
-  // Yatay deste listesi (örnek.png'deki gibi)
-  Widget _buildDeckListView({
-    required List<Deck> decks,
-    required bool isDownloadedSection,
-  }) {
-    if (decks.isEmpty && isDownloadedSection) {
-      return Container(
-        height: 100, // Boş alan yüksekliği
-        alignment: Alignment.center,
-        child: const Text(
-          "Henüz indirilmiş desteniz yok.\n'Önerilenler' bölümünden indirebilirsiniz.",
-          textAlign: TextAlign.center,
+  // Önerilen desteleri listeler
+  Widget _buildRecommendedDecks() {
+    final downloadedIds = _downloadedDecks.map((d) => d.id).toSet();
+    final decksToShow = _recommendedDecks
+        .where((d) => !downloadedIds.contains(d.id))
+        .toList();
+
+    if (decksToShow.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text("Tüm önerilen desteleri indirmişsiniz!"),
         ),
       );
     }
-    
-    if (decks.isEmpty && !isDownloadedSection) {
-      return Container(
-        height: 100, // Boş alan yüksekliği
-        alignment: Alignment.center,
-        child: const Text("Yeni deste bulunamadı.", textAlign: TextAlign.center),
-      );
-    }
-    
-    // Önerilenler listesini filtrele (zaten indirilmiş olanları gösterme)
-    final List<Deck> filteredDecks;
-    if (!isDownloadedSection) {
-      final downloadedIds = _downloadedDecks.map((d) => d.id).toSet();
-      filteredDecks = decks.where((deck) => !downloadedIds.contains(deck.id)).toList();
-    } else {
-      filteredDecks = decks;
-    }
 
-    if (filteredDecks.isEmpty && !isDownloadedSection) {
-       return Container(
-        height: 100, // Boş alan yüksekliği
-        alignment: Alignment.center,
-        child: const Text("Tüm önerilen desteler indirilmiş.", textAlign: TextAlign.center),
-      );
-    }
-
-    return SizedBox(
-      height: 200, // Kart yüksekliği
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-        itemCount: filteredDecks.length,
-        itemBuilder: (context, index) {
-          final deck = filteredDecks[index];
-          return _buildDeckCard(deck, isDownloaded: isDownloadedSection);
-        },
-      ),
+    return Column(
+      children: decksToShow.map((deck) {
+        final isLoading = _loadingState[deck.id] ?? false;
+        return _buildDeckCard(
+          deck: deck,
+          isDownloaded: false,
+          progress: 0.0,
+          isLoading: isLoading,
+        );
+      }).toList(),
     );
   }
 
-  // örnek.png'deki kare kart
-  Widget _buildDeckCard(Deck deck, {required bool isDownloaded}) {
-    // isDownloaded parametresini doğrudan kullan
-    final isLoading = _loadingState[deck.id] ?? false;
-    final progress = _progressCache[deck.id] ?? 0.0;
+  // Tek bir deste kartı widget'ı
+  Widget _buildDeckCard({
+    required Deck deck,
+    required bool isDownloaded,
+    required double progress,
+    required bool isLoading,
+  }) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        
+        onTap: () {
+          if (isLoading) return;
+          if (!isDownloaded) return; 
 
-    return GestureDetector(
-      onTap: isDownloaded ? () => _onDeckTapped(deck) : null,
-      child: Card(
-        elevation: 4,
-        margin: const EdgeInsets.only(right: 12.0),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Container(
-          width: 150,
-          padding: const EdgeInsets.all(12.0),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: isDownloaded ? Colors.blue.shade50 : Colors.grey.shade200,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => StudySessionPage(deck: deck),
+            ),
+          ).then((_) {
+            // Oturum bittiğinde (pop ile geri dönüldüğünde)
+            
+            // 1. Kütüphane sayfasını (ve ilerleme çubuklarını) yenile
+            _loadLibraryData();
+
+            // 2. Ana Sayfa'yı (ve toplam puanı) yenile
+            // HATA DÜZELTMESİ: _HomePageState -> HomePageState
+            // HATA DÜZELTMESİ: _onTap -> publicOnTap
+            final homeState = context.findAncestorStateOfType<HomePageState>();
+            if (homeState != null) {
+              homeState.publicOnTap(0); // Ana Sayfaya (index 0) git
+            }
+          });
+        },
+
+        onLongPress: isDownloaded
+            ? () => _deleteDeck(deck)
+            : null, 
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
             children: [
-              // Başlık ve İkon
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
+              Icon(
+                isDownloaded ? Icons.folder_open : Icons.cloud_download_outlined,
+                color: Colors.blueAccent,
+                size: 30,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
                       deck.name,
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 2,
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      deck.description,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  if (isLoading)
-                    const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  else if (isDownloaded)
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
-                      onPressed: () => _onDeleteTapped(deck),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    )
-                  else
-                    IconButton(
-                      icon: Icon(Icons.download, color: Colors.blueAccent, size: 20),
-                      onPressed: () => _onDownloadTapped(deck),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              // Açıklama
-              Text(
-                deck.description,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const Spacer(),
-              // Kelime Sayısı
-              Text(
-                "${deck.wordCount} kelime",
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 6),
-              // İlerleme Çubuğu (sadece indirilmişse)
-              if (isDownloaded)
-                LinearProgressIndicator(
-                  value: progress,
-                  backgroundColor: Colors.grey.shade300,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.greenAccent),
-                  minHeight: 6,
-                  borderRadius: BorderRadius.circular(4),
-                )
-              else
-                // İndirilmemişse yer tutucu
-                Container(
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
+                  ],
                 ),
-              if (isDownloaded)
-                 Padding(
-                   padding: const EdgeInsets.only(top: 2.0),
-                   child: Text(
-                    "%${(progress * 100).toStringAsFixed(0)} tamamlandı",
-                    style: const TextStyle(fontSize: 11, color: Colors.black54),
-                                 ),
-                 ),
+              ),
+              const SizedBox(width: 16),
+              _buildDeckActionButton(
+                deck: deck,
+                isDownloaded: isDownloaded,
+                isLoading: isLoading,
+                progress: progress,
+              ),
             ],
           ),
         ),
@@ -529,7 +321,75 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
-  // Sayfa değiştirildiğinde state'in korunması için
+  Widget _buildDeckActionButton({
+    required Deck deck,
+    required bool isDownloaded,
+    required bool isLoading,
+    required double progress,
+  }) {
+    if (isLoading) {
+      return const SizedBox(
+        width: 40,
+        height: 40,
+        child: Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (isDownloaded) {
+      return Column(
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                CircularProgressIndicator(
+                  value: progress,
+                  backgroundColor: Colors.grey.shade300,
+                  valueColor:
+                      const AlwaysStoppedAnimation<Color>(Colors.greenAccent),
+                ),
+                Center(
+                  child: Icon(
+                    Icons.play_arrow,
+                    color: Colors.green[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "${(progress * 100).toStringAsFixed(0)}%",
+            style: const TextStyle(fontSize: 11, color: Colors.black54),
+          ),
+        ],
+      );
+    } else {
+      return Column(
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: IconButton(
+              icon: const Icon(Icons.download),
+              color: Colors.blueAccent,
+              onPressed: () => _downloadDeck(deck),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "${deck.wordCount} kelime",
+            style: const TextStyle(fontSize: 11, color: Colors.black54),
+          ),
+        ],
+      );
+    }
+  }
+
   @override
   bool get wantKeepAlive => true;
 }

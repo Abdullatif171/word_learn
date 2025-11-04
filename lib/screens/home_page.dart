@@ -1,26 +1,29 @@
 // screens/home_page.dart
 import 'package:flutter/material.dart';
+import 'package:word_learn/services/deck_service.dart'; // Puan için eklendi
 import '../widgets/build_menu_card.dart';
-import 'flashcard_page.dart';
+// import 'flashcard_page.dart'; // Artık kullanılmıyor
 import 'library_page.dart';
 import 'saves_page.dart';
-import 'mini_game_page.dart'; // Yeni eklendi
+// import 'mini_game_page.dart'; // Artık kullanılmıyor
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  // 1. GÜNCELLEME: _HomePageState -> HomePageState
+  State<HomePage> createState() => HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+// 2. GÜNCELLEME: _HomePageState -> HomePageState
+class HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
 
-  final List<Widget> _pages = const [
-    MainPage(),
-    LibraryPage(), // Artık Kütüphane sayfası
-    SavesPage()
+  final List<Widget> _pages = [
+    MainPage(), // MainPage state'i korumak için const kaldırıldı
+    const LibraryPage(),
+    const SavesPage()
   ];
 
   @override
@@ -29,7 +32,8 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  void _onTap(int index) {
+  // 3. GÜNCELLEME: _onTap -> publicOnTap (Artık diğer dosyalardan erişilebilir)
+  void publicOnTap(int index) {
     setState(() {
       _currentIndex = index;
     });
@@ -39,7 +43,6 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // PageView kullanarak state'lerin korunmasını sağlıyoruz
       body: PageView(
         controller: _pageController,
         onPageChanged: (index) {
@@ -51,7 +54,8 @@ class _HomePageState extends State<HomePage> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: _onTap, // Değiştirildi
+        // 4. GÜNCELLEME: _onTap -> publicOnTap
+        onTap: publicOnTap, 
         selectedItemColor: Colors.blueAccent,
         unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
@@ -59,7 +63,7 @@ class _HomePageState extends State<HomePage> {
           BottomNavigationBarItem(icon: Icon(Icons.home), label: "Ana Sayfa"),
           BottomNavigationBarItem(
             icon: Icon(Icons.library_books),
-            label: "Kütüphane", // Adı güncellendi
+            label: "Kütüphane",
           ),
           BottomNavigationBarItem(icon: Icon(Icons.history), label: "Geçmiş"),
         ],
@@ -69,14 +73,16 @@ class _HomePageState extends State<HomePage> {
 }
 
 class MainPage extends StatelessWidget {
-  const MainPage({super.key});
+  MainPage({super.key}); // const kaldırıldı
+
+  final DeckService _deckService = DeckService();
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    // HomePage'deki PageController'ı bulmak için
-    final homePageState = context.findAncestorStateOfType<_HomePageState>();
+    // 5. GÜNCELLEME: _HomePageState -> HomePageState
+    final homePageState = context.findAncestorStateOfType<HomePageState>();
 
     return Scaffold(
       backgroundColor: colorScheme.surfaceContainerHighest,
@@ -93,68 +99,57 @@ class MainPage extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 20),
-              Text(
-                "📚 Öğrenmeye Hazır mısın?",
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.primary,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 30),
               
-              // Rastgele Öğren (oyun stili) Kartı Güncellendi
-              BuildMenuCard(
-                icon: Icons.casino, 
-                title: "Rastgele Öğren (Kelime Yap)", // Başlık güncellendi
-                subtitle: "Bilinmeyen kelimeleri harflerden oluşturarak öğren (WoW stili)", // Açıklama güncellendi
-                color: Colors.blueAccent, // Renk güncellendi
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const MiniGamePage(),
+              // Toplam Puan Göstergesi
+              FutureBuilder<int>(
+                future: _deckService.getUserScore(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const CircularProgressIndicator();
+                  }
+                  return Card(
+                    color: Colors.blue[50],
+                    elevation: 0,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.star, color: Colors.orange, size: 30),
+                          const SizedBox(width: 15),
+                          Text(
+                            "Toplam Puan: ${snapshot.data} 🔥",
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },
               ),
               
-              const SizedBox(height: 20),
+              const SizedBox(height: 30),
               
               BuildMenuCard(
                 icon: Icons.library_books,
-                title: "Kütüphaneye Göz At",
-                subtitle: "Yeni desteler indir veya indirdiklerine çalış",
+                title: "Destelerine Göz At",
+                subtitle: "Yeni desteler indir veya çalışmaya başla",
                 color: Colors.blueAccent,
                 onTap: () {
                   // BottomNavBar'da 1. indekse (Kütüphane) git
-                  homePageState?._onTap(1);
+                  // 6. GÜNCELLEME: _onTap -> publicOnTap
+                  homePageState?.publicOnTap(1);
                 },
               ),
               
-              const SizedBox(height: 20),
-
-              BuildMenuCard(
-                icon: Icons.refresh,
-                title: "Devam Et (Klasik Kart)",
-                subtitle: "Son bıraktığın yerden kartlarla devam et",
-                color: Colors.green,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          const FlashcardPage(continueFromLast: true),
-                    ),
-                  );
-                },
-              ),
-
               const SizedBox(height: 40),
 
               Text(
-                "🎯 Her gün biraz ilerle, kelimeler seninle kalsın!",
+                "🎯 Öğrenmek için kütüphaneden bir deste seç!",
                 style: TextStyle(
                   fontSize: 14,
                   fontStyle: FontStyle.italic,
