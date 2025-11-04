@@ -1,13 +1,9 @@
-// screens/library_page.dart
 import 'package:flutter/material.dart';
-import 'package:word_learn/screens/home_page.dart'; // YENİ EKLENDİ (Puan yenileme için)
-import 'package:word_learn/screens/study_session_page.dart'; // YENİ EKLENDİ
+import 'package:word_learn/screens/home_page.dart'; 
+import 'package:word_learn/screens/study_session_page.dart'; 
 import '../models/deck_model.dart';
-// import '../models/word_card.dart'; // Bu dosyada artık doğrudan kullanılmıyor
 import '../services/deck_service.dart';
 import '../services/firebase_service.dart';
-// import '../services/save_service.dart'; // Artık bu sayfada kullanılmıyor
-// import 'flashcard_page.dart'; // Artık kullanılmıyor
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -70,7 +66,7 @@ class _LibraryPageState extends State<LibraryPage>
     }
   }
 
-  // YENİ METOT: Bir destenin ilerlemesini (öğrenilen/toplam) hesaplar
+  // Bir destenin ilerlemesini (öğrenilen/toplam) hesaplar
   Future<double> _calculateDeckProgress(String deckId) async {
     try {
       final words = await _deckService.loadDeckFromLocal(deckId);

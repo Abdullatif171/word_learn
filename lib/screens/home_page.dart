@@ -1,17 +1,12 @@
-// screens/home_page.dart
 import 'package:flutter/material.dart';
-import 'package:word_learn/services/deck_service.dart'; // Puan için eklendi
+import 'package:word_learn/services/deck_service.dart';
 import '../widgets/build_menu_card.dart';
-// import 'flashcard_page.dart'; // Artık kullanılmıyor
 import 'library_page.dart';
-import 'saves_page.dart';
-// import 'mini_game_page.dart'; // Artık kullanılmıyor
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
-  // 1. GÜNCELLEME: _HomePageState -> HomePageState
   State<HomePage> createState() => HomePageState();
 }
 
@@ -20,11 +15,7 @@ class HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
 
-  final List<Widget> _pages = [
-    MainPage(), // MainPage state'i korumak için const kaldırıldı
-    const LibraryPage(),
-    const SavesPage()
-  ];
+  final List<Widget> _pages = [MainPage(), const LibraryPage()];
 
   @override
   void dispose() {
@@ -32,7 +23,6 @@ class HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // 3. GÜNCELLEME: _onTap -> publicOnTap (Artık diğer dosyalardan erişilebilir)
   void publicOnTap(int index) {
     setState(() {
       _currentIndex = index;
@@ -55,7 +45,7 @@ class HomePageState extends State<HomePage> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         // 4. GÜNCELLEME: _onTap -> publicOnTap
-        onTap: publicOnTap, 
+        onTap: publicOnTap,
         selectedItemColor: Colors.blueAccent,
         unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
@@ -65,7 +55,6 @@ class HomePageState extends State<HomePage> {
             icon: Icon(Icons.library_books),
             label: "Kütüphane",
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: "Geçmiş"),
         ],
       ),
     );
@@ -73,15 +62,13 @@ class HomePageState extends State<HomePage> {
 }
 
 class MainPage extends StatelessWidget {
-  MainPage({super.key}); // const kaldırıldı
+  MainPage({super.key});
 
   final DeckService _deckService = DeckService();
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-
-    // 5. GÜNCELLEME: _HomePageState -> HomePageState
     final homePageState = context.findAncestorStateOfType<HomePageState>();
 
     return Scaffold(
@@ -99,7 +86,7 @@ class MainPage extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 20),
-              
+
               // Toplam Puan Göstergesi
               FutureBuilder<int>(
                 future: _deckService.getUserScore(),
@@ -131,9 +118,9 @@ class MainPage extends StatelessWidget {
                   );
                 },
               ),
-              
+
               const SizedBox(height: 30),
-              
+
               BuildMenuCard(
                 icon: Icons.library_books,
                 title: "Destelerine Göz At",
@@ -145,7 +132,7 @@ class MainPage extends StatelessWidget {
                   homePageState?.publicOnTap(1);
                 },
               ),
-              
+
               const SizedBox(height: 40),
 
               Text(
