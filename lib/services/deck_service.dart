@@ -163,4 +163,35 @@ class DeckService {
     final manifestStringData = jsonEncode(allWords.map((w) => w.toJson()).toList());
     await file.writeAsString(manifestStringData);
   }
+
+  // YENİ METOT: Global istatistikleri toplar
+  Future<Map<String, int>> getGlobalStatistics() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // 1. Toplam Puanı al
+    final int totalScore = prefs.getInt(_userScoreKey) ?? 0;
+    
+    // 2. Deste ve Kelime sayılarını hesapla
+    final List<Deck> downloadedDecks = await getDownloadedDecks();
+    int totalWordsInDecks = 0;
+    int totalWordsLearned = 0;
+
+    for (var deck in downloadedDecks) {
+      try {
+        final words = await loadDeckFromLocal(deck.id);
+        totalWordsInDecks += words.length;
+        // Öğrenilmiş sayılan kelimeler (SRS seviyesi 0'dan büyük olanlar)
+        totalWordsLearned += words.where((w) => w.reviewIntervalDays > 0).length;
+      } catch (e) {
+        // Hata olursa bu desteyi atla
+      }
+    }
+
+    return {
+      'totalScore': totalScore,
+      'totalDecks': downloadedDecks.length,
+      'totalWords': totalWordsInDecks,
+      'learnedWords': totalWordsLearned,
+    };
+  }
 }

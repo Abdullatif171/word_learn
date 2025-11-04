@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:word_learn/screens/statistics_page.dart';
 import 'package:word_learn/services/deck_service.dart';
 import '../widgets/build_menu_card.dart';
 import 'library_page.dart';
@@ -15,7 +16,11 @@ class HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
 
-  final List<Widget> _pages = [MainPage(), const LibraryPage()];
+  final List<Widget> _pages = [
+    MainPage(),
+    const LibraryPage(),
+    const StatisticsPage(),
+  ];
 
   @override
   void dispose() {
@@ -54,6 +59,10 @@ class HomePageState extends State<HomePage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.library_books),
             label: "Kütüphane",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bar_chart),
+            label: "İstatistikler",
           ),
         ],
       ),

@@ -1,8 +1,8 @@
+import 'dart:async'; 
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:word_learn/models/word_card.dart';
 
-// Harfleri karıştıran yardımcı fonksiyon
 String _scrambleLetters(String word) {
   final List<String> letters = word.toUpperCase().split('');
   letters.shuffle(Random());
@@ -25,20 +25,24 @@ class StudyGamePhase extends StatefulWidget {
 }
 
 class _StudyGamePhaseState extends State<StudyGamePhase> {
-  // Bu oturum için gelen kelimeler
   List<WordCard> _currentSessionWords = [];
   WordCard? _currentWord;
   bool _isLoading = true;
 
-  // Oturum puanı ve sonuç listeleri
   int _score = 0;
   final List<WordCard> _correct = [];
   final List<WordCard> _incorrect = [];
 
-  // Oyun Durumu
   String _currentInput = '';
   List<String> _shuffledLetters = [];
   List<int> _usedLetterIndices = [];
+
+  // --- YENİ EKLENENLER (Süre için) ---
+  Timer? _wordTimer;
+  int _secondsElapsed = 0;
+  static const int _basePoints = 15; // Maksimum puan
+  static const int _minPoints = 5;  // Minimum puan
+  // ---------------------------------
 
   @override
   void initState() {
@@ -46,22 +50,22 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     _loadWordsForGame();
   }
 
-  // Kelimeleri SaveService'ten yüklemek yerine widget'tan al
+  @override
+  void dispose() {
+    _wordTimer?.cancel(); // Sayfa kapanırsa zamanlayıcıyı durdur
+    super.dispose();
+  }
+
   void _loadWordsForGame() {
     _currentSessionWords = List.from(widget.wordsToTest);
-    
-    // Kelime yapma oyunu 3 harften kısa kelimelerde iyi çalışmaz
     _currentSessionWords.removeWhere((w) => w.englishWord.length < 3);
-    
     _currentSessionWords.shuffle();
     
     if (_currentSessionWords.isEmpty) {
-       // Oynanacak uygun kelime yoksa
        if (mounted) {
          ScaffoldMessenger.of(context).showSnackBar(
            const SnackBar(content: Text("Oyun için yeterli kelime yok (min. 3 harf).")),
          );
-         // Oyunu atla (0 puanla bitir)
          widget.onFinished(0, [], []);
        }
        return;
@@ -75,14 +79,13 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     }
   }
 
-  // SRS mantığı ve kaydetme (processAnswer) buradan kaldırıldı.
-  // Sonuçları artık ana yönetici (StudySessionPage) kaydedecek.
-
   // Bir sonraki kelimeye geç
   void _nextWord() {
+    // Önceki zamanlayıcıyı durdur
+    _wordTimer?.cancel();
+
     if (_currentSessionWords.isEmpty) {
       if (mounted) {
-        // Oturum bitti! Sonuçları ana yöneticiye gönder.
         widget.onFinished(_score, _correct, _incorrect);
       }
       return;
@@ -93,6 +96,14 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
       _currentInput = '';
       _shuffledLetters = _scrambleLetters(_currentWord!.englishWord).split('');
       _usedLetterIndices.clear();
+      
+      // YENİ: Zamanlayıcıyı başlat
+      _secondsElapsed = 0;
+      _wordTimer = Timer.periodic(const Duration(seconds: 1), (timer) { 
+        setState(() {
+          _secondsElapsed++; 
+        });
+      });
     });
   }
 
@@ -107,15 +118,13 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
 
   void _removeLetterAtIndex(int indexToRemove) {
      if (_currentInput.isEmpty) return;
-     
-     // Sadece son harfi sil (basitlik için)
      setState(() {
         _currentInput = _currentInput.substring(0, _currentInput.length - 1);
         _usedLetterIndices.removeLast();
      });
   }
   
-  // Kelime Kontrolü
+  // Kelime Kontrolü (GÜNCELLENDİ)
   void _checkWord() {
     if (_currentWord == null) return;
     final correctWord = _currentWord!.englishWord.toUpperCase();
@@ -124,16 +133,20 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
       final isCorrect = _currentInput == correctWord;
       
       if (isCorrect) {
-        // Doğruysa: Puan ve listeye ekle
-        _score += 10; 
+        // YENİ: Puanı süreye göre hesapla
+        _wordTimer?.cancel();
+        // Hızlı cevap = 15 puan. Her 2 saniyede 1 puan düşer, min 5 puan.
+        int points = _basePoints - (_secondsElapsed ~/ 2);
+        points = points.clamp(_minPoints, _basePoints); // Puanı min/max aralığında tut
+        
+        _score += points; 
         _correct.add(_currentWord!);
         _currentSessionWords.removeWhere((w) => w.englishWord == _currentWord!.englishWord);
         
         ScaffoldMessenger.of(context).showSnackBar(
-           const SnackBar(content: Text("Mükemmel! 🔥 +10 Puan"), duration: Duration(milliseconds: 1000)),
+           SnackBar(content: Text("Mükemmel! 🔥 +$points Puan"), duration: const Duration(milliseconds: 1000)),
         );
         
-        // Sonraki kelimeye geç
         Future.delayed(const Duration(milliseconds: 1000), _nextWord);
 
       } else {
@@ -153,24 +166,47 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     }
   }
 
-  // Kelimeyi Atla (Başarısız sayılır)
+  // Kelimeyi Atla (GÜNCELLENDİ)
   void _skipWord() {
     if (_currentWord != null) {
-      // Yanlış listesine ekle
+      _wordTimer?.cancel(); // Zamanlayıcıyı durdur
+      
       _incorrect.add(_currentWord!);
       _currentSessionWords.removeWhere((w) => w.englishWord == _currentWord!.englishWord);
       
       ScaffoldMessenger.of(context).showSnackBar(
-         SnackBar(content: Text("Pas geçildi: ${_currentWord!.englishWord}"), duration: Duration(milliseconds: 1000)),
+         SnackBar(content: Text("Pas geçildi: ${_currentWord!.englishWord}"), duration: const Duration(milliseconds: 1000)),
       );
 
-      // Sonraki kelimeye geç
       Future.delayed(const Duration(milliseconds: 1000), _nextWord);
     }
   }
+  
+  // YENİ METOT: Erken çıkış onayı
+  Future<bool> _onWillPop() async {
+    final bool? shouldPop = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Oyundan Çık'),
+        content: const Text('Şu anki ilerlemeniz (bu oturum için) kaydedilmeyecek. Çıkmak istediğinize emin misiniz?'),
+        actions: [
+          TextButton(
+            child: const Text('İptal'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          TextButton(
+            child: const Text('Çık', style: TextStyle(color: Colors.red)),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+    return shouldPop ?? false;
+  }
 
-  // UI Bileşenleri: Cevap Izgarası
+  // --- UI METOTLARI (değişmedi) ---
   Widget _buildAnswerGrid() {
+    // ... (Bu metot değişmedi) ...
     final wordLength = _currentWord!.englishWord.length;
     final letters = _currentInput.split('');
 
@@ -208,8 +244,8 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     );
   }
 
-  // UI Bileşenleri: Harf Çarkı
   Widget _buildLetterWheel() {
+    // ... (Bu metot değişmedi) ...
     if (_shuffledLetters.isEmpty) return const SizedBox.shrink();
 
     const double outerRadius = 100.0; 
@@ -287,6 +323,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
       ),
     );
   }
+  // --- UI Metotları Sonu ---
 
   @override
   Widget build(BuildContext context) {
@@ -296,63 +333,84 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
       );
     }
     
-    // Kalan kelime sayısını _currentSessionWords'ten değil, widget'tan alarak hesaplayalım
     final int totalInSession = widget.wordsToTest.length;
     final int completedCount = _correct.length + _incorrect.length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Aşama 2: Kelime Yapma Oyunu"),
-        backgroundColor: Colors.blueAccent,
-        foregroundColor: Colors.white,
-        automaticallyImplyLeading: false, // Geri gitmeyi engelle
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // İlerleme
-              LinearProgressIndicator(
-                value: (completedCount) / totalInSession,
-                backgroundColor: Colors.grey.shade300,
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                "Kelime: ${completedCount + 1} / $totalInSession",
-                style: const TextStyle(fontSize: 14, color: Colors.black54),
-              ),
-              const SizedBox(height: 30),
-              
-              // İpucu: Türkçe Çevirisi
-              Card(
-                elevation: 4,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    children: [
-                      const Text("Hangi kelime?", style: TextStyle(fontSize: 18, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      Text(
-                        _currentWord!.turkishTranslation,
-                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blueAccent),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+    // YENİ WIDGET: PopScope
+    return PopScope(
+      canPop: false, // Otomatik çıkışı engelle
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        final bool shouldPop = await _onWillPop();
+        if (shouldPop && context.mounted) {
+          _wordTimer?.cancel(); // Çıkarken zamanlayıcıyı durdur
+          Navigator.pop(context); // Onaylanırsa manuel çık
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Aşama 2: Kelime Yapma Oyunu"),
+          backgroundColor: Colors.blueAccent,
+          foregroundColor: Colors.white,
+          // automaticallyImplyLeading: false, // Geri tuşunu göstermek için bu satırı SİLİN
+        ),
+        body: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                // İlerleme
+                LinearProgressIndicator(
+                  value: (completedCount) / totalInSession,
+                  backgroundColor: Colors.grey.shade300,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Kelime: ${completedCount + 1} / $totalInSession",
+                      style: const TextStyle(fontSize: 14, color: Colors.black54),
+                    ),
+                    // YENİ: Süre Göstergesi
+                    Text(
+                      "Süre: $_secondsElapsed sn",
+                      style: const TextStyle(fontSize: 14, color: Colors.redAccent, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 30),
+                
+                // İpucu: Türkçe Çevirisi
+                Card(
+                  elevation: 4,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        const Text("Hangi kelime?", style: TextStyle(fontSize: 18, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        Text(
+                          _currentWord!.turkishTranslation,
+                          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 40),
-              
-              // Cevap Izgarası
-              _buildAnswerGrid(),
-              const SizedBox(height: 40),
-              
-              // Harf Çarkı
-              _buildLetterWheel(),
-            ],
+                const SizedBox(height: 40),
+                
+                // Cevap Izgarası
+                _buildAnswerGrid(),
+                const SizedBox(height: 40),
+                
+                // Harf Çarkı
+                _buildLetterWheel(),
+              ],
+            ),
           ),
         ),
       ),
