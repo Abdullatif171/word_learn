@@ -72,7 +72,7 @@ class _LeaderboardPageState extends State<LeaderboardPage>
             Icon(
               Icons.leaderboard, 
               size: 80, 
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.5)
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)
             ),
             const SizedBox(height: 20),
             Text(
@@ -125,7 +125,7 @@ class _LeaderboardPageState extends State<LeaderboardPage>
 
               return Card(
                 color: isCurrentUser 
-                    ? colorScheme.primary.withOpacity(0.3) 
+                    ? colorScheme.primary.withValues(alpha: 0.3) 
                     : colorScheme.surface,
                 child: ListTile(
                   leading: Text(

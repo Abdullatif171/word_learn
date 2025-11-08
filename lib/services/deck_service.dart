@@ -73,15 +73,11 @@ class DeckService {
   // Desteyi yerel depodan sil
   Future<void> deleteDeck(String deckId) async {
     final prefs = await SharedPreferences.getInstance();
-    try {
       final path = await _getLocalPath(deckId);
       final file = File(path);
       if (await file.exists()) {
         await file.delete();
       }
-    } catch (e) {
-      print("Yerel dosya silinirken hata: $e");
-    }
     final downloaded = await getDownloadedDecks();
     downloaded.removeWhere((d) => d.id == deckId);
     final manifestString = jsonEncode(downloaded.map((d) => d.toJson()).toList());
@@ -116,14 +112,11 @@ class DeckService {
       return jsonList.map((json) => WordCard.fromJson(json)).toList();
 
     } catch (e) {
-      print("Yerel deste yüklenirken hata: $e");
       await deleteDeck(deckId);
       throw Exception("Deste yüklenemedi ve kaldırıldı.");
     }
   }
   
-  // ----- YENİ METOTLAR -----
-
   // Kullanıcının toplam puanını getir
   Future<int> getUserScore() async {
     final prefs = await SharedPreferences.getInstance();
@@ -164,7 +157,7 @@ class DeckService {
     await file.writeAsString(manifestStringData);
   }
 
-  // YENİ METOT: Global istatistikleri toplar
+  // Global istatistikleri toplar
   Future<Map<String, int>> getGlobalStatistics() async {
     final prefs = await SharedPreferences.getInstance();
     

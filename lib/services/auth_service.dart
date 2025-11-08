@@ -19,7 +19,6 @@ class AuthService {
 
   // Adım 2: Asenkron başlatma (HATA DÜZELTİLDİ)
   Future<void> _initializeGoogleSignIn() async {
-    try {
       // Android ve iOS platformları için 'serverClientId' olarak 
       // 'iosClientId' kullanılır. Bu, FlutterFire'ın yapılandırma şeklidir.
       // Web platformu farklı bir 'clientId' kullanır ancak şu anki hatanız
@@ -39,9 +38,6 @@ class AuthService {
         serverClientId: serverClientId, // Düzeltilmiş ID'yi buraya iletiyoruz
       );
       _isGoogleSignInInitialized = true;
-    } catch (e) {
-      print('Failed to initialize Google Sign-In: $e');
-    }
   }
 
   // Adım 2: Başlatmayı kontrol et
@@ -68,8 +64,7 @@ class AuthService {
 
       // Kullanıcı iptal ederse googleUser null gelebilir
       if (googleUser == null) {
-        print("Google Sign In iptal edildi.");
-        return null;
+        throw Exception("Google Sign In iptal edildi.");
       }
 
       // Adım 5: Senkron 'authentication' al (idToken için)
@@ -80,7 +75,6 @@ class AuthService {
       final authorization = await authClient.authorizationForScopes(['email']);
 
       if (authorization == null) {
-        print("Authorization alınamadı.");
         return null;
       }
 
@@ -97,11 +91,9 @@ class AuthService {
       }
       return userCredential;
 
-    } on GoogleSignInException catch (e) {
-      print('Google Sign In error: code: ${e.code.name} description:${e.description}');
+    } on GoogleSignInException {
       return null;
     } catch (error) {
-      print('Unexpected Google Sign-In error: $error');
       return null;
     }
   }

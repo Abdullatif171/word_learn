@@ -7,11 +7,10 @@ class StudyLearnPhase extends StatefulWidget {
   final VoidCallback onPhaseComplete;
 
   const StudyLearnPhase(
-      {Key? key, required this.sessionWords, required this.onPhaseComplete})
-      : super(key: key);
+      {super.key, required this.sessionWords, required this.onPhaseComplete});
 
   @override
-  _StudyLearnPhaseState createState() => _StudyLearnPhaseState();
+  State<StudyLearnPhase> createState() => _StudyLearnPhaseState();
 }
 
 class _StudyLearnPhaseState extends State<StudyLearnPhase> {
@@ -108,7 +107,7 @@ class _StudyLearnPhaseState extends State<StudyLearnPhase> {
                 Text(
                   "Çevirmek için dokun, geçmek için kaydır.",
                   style: textTheme.bodyMedium
-                      ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
+                      ?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.7)),
                 ),
                 // İlerleme çubuğu
                 Padding(

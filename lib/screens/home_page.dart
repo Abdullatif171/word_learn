@@ -89,7 +89,7 @@ class MainPage extends StatelessWidget {
         // Arka plana hafif bir desen veya doku eklenebilir,
         // şimdilik temadan gelen ana arka plan rengini kullanalım.
         decoration: BoxDecoration(
-          color: colorScheme.background,
+          color: colorScheme.surface,
         ),
         child: SingleChildScrollView(
           child: Padding(

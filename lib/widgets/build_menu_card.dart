@@ -9,13 +9,13 @@ class BuildMenuCard extends StatelessWidget {
   final VoidCallback onTap;
 
   const BuildMenuCard({
-    Key? key,
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.color,
     required this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +27,7 @@ class BuildMenuCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias, // İçeriğin kenarlıktan taşmasını önle
       child: InkWell(
         onTap: onTap,
-        splashColor: color.withOpacity(0.2),
+        splashColor: color.withValues(alpha: 0.2),
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Row(
@@ -53,7 +53,7 @@ class BuildMenuCard extends StatelessWidget {
                     Text(
                       subtitle,
                       style: textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurface.withOpacity(0.7), // Soluk metin
+                        color: colorScheme.onSurface.withValues(alpha: 0.7), // Soluk metin
                       ),
                     ),
                   ],
@@ -61,7 +61,7 @@ class BuildMenuCard extends StatelessWidget {
               ),
               Icon(
                 Icons.arrow_forward_ios,
-                color: colorScheme.onSurface.withOpacity(0.5),
+                color: colorScheme.onSurface.withValues(alpha: 0.5),
               ),
             ],
           ),

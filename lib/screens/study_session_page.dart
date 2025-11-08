@@ -6,33 +6,32 @@ import 'package:word_learn/screens/study_game_phase.dart';
 import 'package:word_learn/screens/study_learn_phase.dart';
 import 'package:word_learn/screens/study_result_phase.dart';
 import 'package:word_learn/services/deck_service.dart';
+import 'package:word_learn/services/firebase_service.dart'; // <-- YENİ IMPORT
 
 enum StudyPhase { learning, game, results }
 
 class StudySessionPage extends StatefulWidget {
-  // --- GÜNCELLEME ---
-  final Deck deck; // Sadece meta veri (ID, name) için
-  final List<WordCard> words; // Kelimelerin tam listesi
-  // --- GÜNCELLEME SONU ---
+  final Deck deck; 
+  final List<WordCard> words;
 
   const StudySessionPage({
-    Key? key,
+    super.key,
     required this.deck,
     required this.words,
-  }) : super(key: key);
+  });
 
   @override
-  _StudySessionPageState createState() => _StudySessionPageState();
+  State<StudySessionPage> createState() => _StudySessionPageState();
 }
 
 class _StudySessionPageState extends State<StudySessionPage> {
   StudyPhase _currentPhase = StudyPhase.learning;
   final DeckService _deckService = DeckService();
+  final FirebaseService _firebaseService = FirebaseService(); // <-- YENİ INSTANCE
 
   List<WordCard> _sessionWords = [];
-  final List<WordCard> _allDeckWords = []; // Artık bu widget.words'ten gelecek
+  final List<WordCard> _allDeckWords = []; 
 
-  // Sonuçları saklamak için
   List<WordCard> _correctAnswers = [];
   List<WordCard> _incorrectAnswers = [];
   int _sessionScore = 0;
@@ -40,7 +39,7 @@ class _StudySessionPageState extends State<StudySessionPage> {
   @override
   void initState() {
     super.initState();
-    _allDeckWords.addAll(widget.words); // Kelimeleri doğrudan al
+    _allDeckWords.addAll(widget.words); 
     _prepareSessionWords();
   }
 
@@ -97,9 +96,24 @@ class _StudySessionPageState extends State<StudySessionPage> {
   void _onGameComplete(
       List<WordCard> correct, List<WordCard> incorrect, int score) async {
     
-    // --- GÜNCELLEME (deck.id -> widget.deck.id) ---
-    // Puanı ve ilerlemeyi kaydet
+    // --- GÜNCELLEME BAŞLANGICI ---
+    
+    // 1. Yerel puanı (SharedPreferences) güncelle (ProfilePage'in hızlıca görmesi için)
     await _deckService.updateUserScore(score);
+    
+    // 2. Firebase puanını (Firestore) güncelle (LeaderboardPage için)
+    try {
+      await _firebaseService.updateUserScoreInFirestore(score);
+    } catch (e) {
+      // Hata olursa (örn. internet yoksa) kullanıcıyı bilgilendir
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Puan sunucuya yüklenemedi: $e"))
+        );
+      }
+    }
+
+    // 3. Kelime ilerlemesini (SRS) yerel olarak kaydet
     await _deckService.updateWordsProgress(widget.deck.id, correct, incorrect);
     // --- GÜNCELLEME SONU ---
 
@@ -134,7 +148,8 @@ class _StudySessionPageState extends State<StudySessionPage> {
           score: _sessionScore,
           correctWords: _correctAnswers,
           incorrectWords: _incorrectAnswers,
-          onExit: _onResultComplete,
+          totalQuestions: _sessionWords.length,
+          onFinished: _onResultComplete, 
         );
     }
   }

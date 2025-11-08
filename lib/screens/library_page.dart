@@ -48,18 +48,14 @@ class _LibraryPageState extends State<LibraryPage>
     }
   }
 
-  // --- HATA DÜZELTMESİ (loadDeckWords -> loadDeckFromLocal) ---
   void _startStudy(Deck deck) async {
-    // TODO: Bir yükleme göstergesi eklenebilir
     try {
-      // 1. Kelimeleri servisten yükle (Doğru metot adı kullanıldı)
       List<WordCard> words = await _deckService.loadDeckFromLocal(deck.id);
       
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            // 2. StudySessionPage'e hem deste (meta veri) hem de kelimeleri (içerik) gönder
             builder: (context) => StudySessionPage(deck: deck, words: words),
           ),
         ).then((_) => _loadAllDecks());
@@ -72,7 +68,6 @@ class _LibraryPageState extends State<LibraryPage>
         }
     }
   }
-  // --- HATA DÜZELTMESİ SONU ---
 
   void _deleteDeck(Deck deck) async {
      await _deckService.deleteDeck(deck.id);
@@ -115,7 +110,7 @@ class _LibraryPageState extends State<LibraryPage>
     );
   }
 
-  // İndirilen Desteler (Modelinize göre 'name' ve 'wordCount' kullanır)
+  // İndirilen Desteler
   Widget _buildDownloadedDecks(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
@@ -128,7 +123,7 @@ class _LibraryPageState extends State<LibraryPage>
             "Henüz bir deste indirmediniz. Aşağıdan bir deste seçin.",
             textAlign: TextAlign.center,
             style: textTheme.bodyLarge
-                ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
+                ?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.7)),
           ),
         ),
       );
@@ -142,6 +137,7 @@ class _LibraryPageState extends State<LibraryPage>
           style: textTheme.headlineSmall?.copyWith(color: colorScheme.primary),
         ),
         const SizedBox(height: 10),
+        // --- DÜZELTME 1: .toList() kaldırıldı ---
         ..._downloadedDecks.map((deck) {
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
@@ -162,7 +158,7 @@ class _LibraryPageState extends State<LibraryPage>
                           Text(
                             "${deck.wordCount} kelime",
                             style: textTheme.bodyMedium?.copyWith(
-                                color: colorScheme.onSurface.withOpacity(0.7)),
+                                color: colorScheme.onSurface.withValues(alpha: 0.7)),
                           ),
                         ],
                       ),
@@ -177,12 +173,13 @@ class _LibraryPageState extends State<LibraryPage>
               ),
             ),
           );
-        }).toList(),
+        }),
+        // --- DÜZELTME 1 SONU ---
       ],
     );
   }
 
-  // Önerilen Desteler (Modelinize göre 'name' kullanır)
+  // Önerilen Desteler
   Widget _buildRecommendedDecks(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
@@ -196,6 +193,7 @@ class _LibraryPageState extends State<LibraryPage>
               textTheme.headlineSmall?.copyWith(color: colorScheme.secondary),
         ),
         const SizedBox(height: 10),
+        // --- DÜZELTME 2: .toList() kaldırıldı ---
         ..._recommendedDecks.map((deck) {
           final bool isDownloaded = _isDownloaded(deck);
           return Card(
@@ -205,7 +203,7 @@ class _LibraryPageState extends State<LibraryPage>
               title: Text(deck.name, style: textTheme.titleMedium),
               subtitle: Text(deck.description,
                   style: textTheme.bodySmall
-                      ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7))),
+                      ?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.7))),
               trailing: isDownloaded
                   ? Icon(Icons.check_circle, color: Colors.green)
                   : IconButton(
@@ -215,7 +213,8 @@ class _LibraryPageState extends State<LibraryPage>
                     ),
             ),
           );
-        }).toList(),
+        }),
+        // --- DÜZELTME 2 SONU ---
       ],
     );
   }

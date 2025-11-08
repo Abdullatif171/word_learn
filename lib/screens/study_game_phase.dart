@@ -38,6 +38,9 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
   Map<int, double> _letterAngles = {};
   final double _radius = 110.0;
 
+  // Animasyon için
+  bool _showCorrectAnimation = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,7 +53,8 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
       _userInput = "";
       _secondsElapsed = 0;
       _startTimer();
-      _shuffledLetters = _currentWord!.englishWord.split('')..shuffle();
+      // Harfleri küçük harfe çevirerek karıştır ve listele
+      _shuffledLetters = _currentWord!.englishWord.toLowerCase().split('')..shuffle();
       _generateAngles(); // Her kelimede açıları yeniden hesapla
     } else {
       _timer?.cancel();
@@ -63,7 +67,6 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     _letterAngles.clear();
     final random = Random();
     for (int i = 0; i < _shuffledLetters.length; i++) {
-      // Harflerin üst üste binmesini önlemek için küçük rastgelelik
       _letterAngles[i] = random.nextDouble() * 10 - 5;
     }
   }
@@ -77,40 +80,57 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     });
   }
 
-  // Harf Çarkından bir harfe tıklandığında
+  // Harf Çarkından bir harfe tıklandığında (GÜNCELLENDİ)
   void _onLetterTapped(String letter, int index) {
+    // Kelimeyi zaten bildiyse yeni harf eklemeyi durdur
+    if (_showCorrectAnimation) return;
+
     setState(() {
       _userInput += letter;
-      _shuffledLetters.removeAt(index); // Kullanılan harfi çarktan kaldır
-      _letterAngles.remove(index); // Açısını da kaldır
+      _shuffledLetters.removeAt(index);
+      _letterAngles.remove(index);
 
-      // Cevap doğru mu kontrol et
-      if (_userInput == _currentWord!.englishWord) {
+      // --- DÜZELTME: Anagram kontrolü kaldırıldı, tam eşleşme kontrolü geri geldi ---
+      // Kullanıcının girdiği kelime (küçük harf) ile cevap (küçük harf) eşleşiyor mu?
+      if (_userInput == _currentWord!.englishWord.toLowerCase()) {
+        
+        // --- KAZANMA DURUMU ---
         _timer?.cancel();
         int points = _calculatePoints();
         _totalScore += points;
         _correctWords.add(_currentWord!);
-        
-        // TODO: Doğru cevap animasyonu (örn. yeşil parlama)
-        
-        Future.delayed(const Duration(milliseconds: 500), () {
+
+        setState(() {
+          _showCorrectAnimation = true;
+        });
+
+        Future.delayed(const Duration(milliseconds: 800), () {
           setState(() {
+            _showCorrectAnimation = false;
             _currentIndex++;
             _loadWord();
           });
         });
+        // --- KAZANMA DURUMU SONU ---
       }
+      // --- DÜZELTME SONU ---
     });
   }
 
+
   // Harf kutusuna tıklandığında (geri silme)
   void _onInputBoxTapped(int index) {
+    if (_showCorrectAnimation) return;
+
     setState(() {
+      // _userInput'tan doğru harfi indekse göre çıkar
       String removedLetter = _userInput[index];
       _userInput = _userInput.substring(0, index) +
           _userInput.substring(index + 1);
-      _shuffledLetters.add(removedLetter); // Harfi çarka geri ekle
-      _generateAngles(); // Geri eklenen harf için yeni açı
+      
+      // Çıkan harfi çarka geri ekle
+      _shuffledLetters.add(removedLetter);
+      _generateAngles(); // Harf çarkını yeniden düzenle
     });
   }
 
@@ -138,7 +158,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     return Scaffold(
       appBar: AppBar(
         title: Text("Kelime Oyunu (${_currentIndex + 1}/${widget.sessionWords.length})"),
-        bottom: _buildTimer(context), // Zamanlayıcıyı AppBar'ın altına al
+        bottom: _buildTimer(context),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -148,12 +168,14 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
             Text(
               "Türkçesi:",
               style: textTheme.titleMedium
-                  ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
+                  ?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.7)),
             ),
             Text(
               _currentWord!.turkishTranslation,
               style: textTheme.headlineMedium
                   ?.copyWith(fontWeight: FontWeight.bold),
+              softWrap: true, // Uzun sorular için alt satıra kaydır
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
 
@@ -173,13 +195,12 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     );
   }
 
-  // Zamanlayıcı (Steampunk Gauge/Gösterge gibi)
+  // Zamanlayıcı
   PreferredSizeWidget _buildTimer(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     double progress = 1.0 - (_secondsElapsed / (_basePoints - _minPoints) / 2);
-    progress = progress.clamp(0.0, 1.0); // 0 ile 1 arasında kalmasını sağla
+    progress = progress.clamp(0.0, 1.0);
     
-    // Puanın ne zaman düşeceğini gösteren renk
     Color progressColor =
         progress > 0.5 ? colorScheme.primary : colorScheme.error;
 
@@ -189,7 +210,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
         children: [
           LinearProgressIndicator(
             value: progress,
-            backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.5),
+            backgroundColor: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
             valueColor: AlwaysStoppedAnimation<Color>(progressColor),
             minHeight: 10,
           ),
@@ -202,7 +223,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
                   "Kalan Puan: +${_calculatePoints()}",
                   style: TextStyle(color: progressColor, fontWeight: FontWeight.bold),
                 ),
-                Icon(Icons.timer, size: 16, color: colorScheme.onSurface.withOpacity(0.7)),
+                Icon(Icons.timer, size: 16, color: colorScheme.onSurface.withValues(alpha: 0.7)),
               ],
             ),
           ),
@@ -211,52 +232,105 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     );
   }
 
-  // Cevap Kutuları (Daha belirgin)
+  // Cevap Kutuları (Kelime Gruplamalı)
   Widget _buildInputBoxes(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    
-    List<Widget> boxes = [];
-    for (int i = 0; i < _currentWord!.englishWord.length; i++) {
-      boxes.add(
-        GestureDetector(
-          onTap: () {
-            // Sadece doluysa geri sil
-            if (i < _userInput.length) {
-              _onInputBoxTapped(i);
-            }
-          },
-          child: Container(
-            width: 40,
-            height: 50,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            decoration: BoxDecoration(
-              color: colorScheme.surface, // Antrasit yüzey
-              border: Border.all(
-                  color: colorScheme.primary.withOpacity(0.5), width: 1),
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 4,
-                  offset: const Offset(2, 2),
-                )
-              ],
-            ),
-            child: Center(
-              child: Text(
-                i < _userInput.length ? _userInput[i].toUpperCase() : "",
-                style: textTheme.headlineSmall?.copyWith(color: colorScheme.primary),
+
+    // Animasyon için dinamik değerler
+    final Color shadowColor = _showCorrectAnimation
+        ? Colors.green.withValues(alpha: 0.9)
+        : Colors.black.withValues(alpha: 0.3);
+
+    final Color borderColor = _showCorrectAnimation
+        ? Colors.green
+        : colorScheme.primary.withValues(alpha: 0.5);
+
+    final double blurRadius = _showCorrectAnimation ? 10 : 4;
+    final double spreadRadius = _showCorrectAnimation ? 2 : 0;
+
+    // Kelimeyi boşluklara göre böl
+    final List<String> words = _currentWord!.englishWord.toLowerCase().split(' ');
+    int globalCharIndex = 0; // _userInput string'i içindeki genel indeksi takip eder
+
+    List<Widget> wordRows = [];
+
+    for (String word in words) {
+      List<Widget> letterBoxes = [];
+      
+      // Kelimenin harfleri için kutuları oluştur
+      for (int i = 0; i < word.length; i++) {
+        final int currentIndex = globalCharIndex; // Tıklama için mevcut global indeksi yakala
+
+        letterBoxes.add(
+          GestureDetector(
+            onTap: () {
+              if (currentIndex < _userInput.length) {
+                _onInputBoxTapped(currentIndex); // Tıklamada global indeksi kullan
+              }
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              width: 40,
+              height: 50,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                border: Border.all(color: borderColor, width: 1),
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: shadowColor,
+                    blurRadius: blurRadius,
+                    spreadRadius: spreadRadius,
+                    offset: const Offset(2, 2),
+                  )
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  // _userInput'tan doğru harfi global indekse göre al
+                  currentIndex < _userInput.length ? _userInput[currentIndex].toUpperCase() : "",
+                  style: textTheme.headlineSmall?.copyWith(
+                    color: _showCorrectAnimation
+                        ? Colors.green
+                        : colorScheme.primary,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        );
+        globalCharIndex++; // Her harften sonra global indeksi artır
+      }
+      
+      // Harf kutularını bir Row içine al (bu bir kelimeyi temsil eder)
+      wordRows.add(
+        Row(
+          mainAxisSize: MainAxisSize.min, // Row'un küçülmesini sağla
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: letterBoxes,
+        )
       );
+
+      // Kelimeler arasındaki boşluğu da global indekse ekle
+      // (Eğer son kelime değilse)
+      if (word != words.last) {
+        globalCharIndex++; // Boşluk karakteri için indeksi artır
+      }
     }
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: boxes);
+    
+    // Tüm kelime Row'larını bir Wrap içine yerleştir
+    return Wrap(
+      alignment: WrapAlignment.center, // Tüm kelimeleri ortala
+      runSpacing: 8.0, // Alt satıra kayan kelimeler için dikey boşluk
+      spacing: 12.0, // Aynı satırdaki kelimeler arası yatay boşluk
+      children: wordRows,
+    );
   }
 
-  // Harf Çarkı (Steampunk Dişliler gibi)
+  // Harf Çarkı
   Widget _buildLetterWheel(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -269,29 +343,27 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
       double x = _radius * cos(angle);
       double y = _radius * sin(angle);
       
-      // Harfleri biraz döndürerek dişli hissi ver
       double rotationAngle = _letterAngles[i] ?? 0.0;
 
       letters.add(
         AnimatedPositioned(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
-          top: y + _radius, // Merkeze göre pozisyon
-          left: x + _radius, // Merkeze göre pozisyon
+          top: y + _radius,
+          left: x + _radius,
           child: Transform.rotate(
-            angle: rotationAngle * (pi / 180), // Dereceyi radyana çevir
+            angle: rotationAngle * (pi / 180),
             child: GestureDetector(
               onTap: () => _onLetterTapped(_shuffledLetters[i], i),
               child: Container(
                 width: 55,
                 height: 55,
                 decoration: BoxDecoration(
-                  // Pirinç/Altın metalik görünüm
                   gradient: LinearGradient(
                     colors: [
-                      colorScheme.primary.withOpacity(0.8),
+                      colorScheme.primary.withValues(alpha: 0.8),
                       colorScheme.primary,
-                      colorScheme.secondary.withOpacity(0.7) // Bakır gölge
+                      colorScheme.secondary.withValues(alpha: 0.7)
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -300,7 +372,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
                   border: Border.all(color: colorScheme.secondary, width: 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
+                      color: Colors.black.withValues(alpha: 0.5),
                       blurRadius: 5,
                       offset: const Offset(3, 3),
                     ),
@@ -310,7 +382,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
                   child: Text(
                     _shuffledLetters[i].toUpperCase(),
                     style: textTheme.titleLarge?.copyWith(
-                      color: Colors.black, // Metalik üstüne koyu font
+                      color: Colors.black,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -323,8 +395,8 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
     }
 
     // Çarkın merkezi
-    return Container(
-      width: _radius * 2 + 60, // Harflerin sığması için
+    return SizedBox(
+      width: _radius * 2 + 60,
       height: _radius * 2 + 60,
       child: Stack(
         alignment: Alignment.center,
@@ -335,10 +407,10 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
             height: _radius * 1.5,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: colorScheme.surface.withOpacity(0.5),
+              color: colorScheme.surface.withValues(alpha: 0.5),
               border: Border.all(color: colorScheme.secondary, width: 4, style: BorderStyle.solid),
             ),
-            child: Icon(Icons.settings, color: colorScheme.surface, size: 50), // Arka plan
+            child: Icon(Icons.settings, color: colorScheme.surface, size: 50),
           ),
           ...letters,
         ],

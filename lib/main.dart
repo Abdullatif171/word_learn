@@ -84,7 +84,7 @@ class MyApp extends StatelessWidget {
         elevation: 4,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: primaryColor.withOpacity(0.3), width: 1),
+          side: BorderSide(color: primaryColor.withValues(alpha: 0.3), width: 1),
         ),
       ),
 

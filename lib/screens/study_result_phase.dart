@@ -4,7 +4,7 @@ import 'package:word_learn/models/word_card.dart';
 
 class StudyResultPhase extends StatelessWidget {
   final int score;
-  final int totalQuestions;
+  final int totalQuestions; // <-- EKLENDİ
   final List<WordCard> correctWords;
   final List<WordCard> incorrectWords;
   final VoidCallback onFinished;
@@ -12,7 +12,7 @@ class StudyResultPhase extends StatelessWidget {
   const StudyResultPhase({
     super.key,
     required this.score,
-    required this.totalQuestions,
+    required this.totalQuestions, // <-- EKLENDİ
     required this.correctWords,
     required this.incorrectWords,
     required this.onFinished,
@@ -43,6 +43,7 @@ class StudyResultPhase extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     Text(
+                      // 'totalQuestions' artık burada kullanılıyor
                       "$totalQuestions kelimeden ${correctWords.length} tanesini doğru bildin.",
                       style: const TextStyle(fontSize: 18),
                       textAlign: TextAlign.center,

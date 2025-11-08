@@ -1,7 +1,7 @@
 // lib/screens/profile_page.dart
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:word_learn/services/auth_service.dart';
 import 'package:word_learn/services/deck_service.dart';
 
@@ -19,6 +19,17 @@ class _ProfilePageState extends State<ProfilePage>
   final DeckService _deckService = DeckService();
   Future<Map<String, int>>? _statsFuture;
 
+  // --- YENİ EKLENEN ALANLAR (Giriş/Kayıt Formu için) ---
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  bool _isLoginMode = true; // true = Giriş Yap, false = Kayıt Ol
+  bool _isLoading = false;
+  String _errorMessage = "";
+  // --- EKLENEN ALANLARIN SONU ---
+
+
   @override
   void initState() {
     super.initState();
@@ -31,6 +42,64 @@ class _ProfilePageState extends State<ProfilePage>
       _statsFuture = _deckService.getGlobalStatistics();
     });
   }
+
+  @override
+  void dispose() {
+    // Controller'ları temizle
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  // --- YENİ EKLENEN METOT (Form Gönderme) ---
+  Future<void> _submitForm() async {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return; // Form geçerli değilse dur
+    }
+    
+    setState(() {
+      _isLoading = true;
+      _errorMessage = "";
+    });
+
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    try {
+      String? result;
+      if (_isLoginMode) {
+        result = await authService.signInWithEmail(email, password);
+      } else {
+        result = await authService.registerWithEmail(email, password);
+      }
+
+      if (result == "Success") {
+        // Başarılı giriş/kayıt sonrası istatistikleri yükle
+        _loadStats();
+        if (mounted) {
+          // Formu temizle
+          _emailController.clear();
+          _passwordController.clear();
+        }
+      } else {
+        // Firebase'den gelen hatayı göster
+        setState(() {
+          _errorMessage = result ?? "Bilinmeyen bir hata oluştu.";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  // --- YENİ METOT SONU ---
+
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +119,7 @@ class _ProfilePageState extends State<ProfilePage>
               tooltip: "Çıkış Yap",
               onPressed: () async {
                 await authService.signOut();
-                // İstatistikleri de temizle (artık yerel değil)
+                // İstatistikleri de temizle
                 _loadStats(); 
               },
             )
@@ -62,51 +131,140 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // Oturum Kapalıyken Gösterilecek Arayüz
+  // Oturum Kapalıyken Gösterilecek Arayüz (GÜNCELLENDİ)
   Widget _buildLoggedOutView(BuildContext context, AuthService authService) {
     final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
     
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.person_off, 
-              size: 80, 
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.5)
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(
+                  Icons.person_pin_circle, // Steampunk temasına uygun bir ikon
+                  size: 80, 
+                  color: colorScheme.primary.withValues(alpha: 0.7)
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  _isLoginMode ? "Giriş Yap" : "Kayıt Ol",
+                  style: textTheme.headlineSmall,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                
+                // E-posta Alanı
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(
+                    labelText: "E-posta",
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (value) {
+                    if (value == null || value.isEmpty || !value.contains('@')) {
+                      return 'Geçerli bir e-posta girin.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                
+                // Şifre Alanı
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(
+                    labelText: "Şifre",
+                    prefixIcon: Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                  obscureText: true,
+                  validator: (value) {
+                    if (value == null || value.isEmpty || value.length < 6) {
+                      return 'Şifre en az 6 karakter olmalı.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 24),
+    
+                // Hata Mesajı
+                if (_errorMessage.isNotEmpty)
+                  Text(
+                    _errorMessage,
+                    style: TextStyle(color: colorScheme.error),
+                    textAlign: TextAlign.center,
+                  ),
+                if (_errorMessage.isNotEmpty)
+                  const SizedBox(height: 16),
+    
+                // Yüklenme Göstergesi veya Buton
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ElevatedButton(
+                        onPressed: _submitForm,
+                        child: Text(_isLoginMode ? "Giriş Yap" : "Kayıt Ol"),
+                      ),
+                const SizedBox(height: 20),
+                
+                // Mod Değiştirme Butonu
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _isLoginMode = !_isLoginMode;
+                      _errorMessage = "";
+                    });
+                  },
+                  child: Text(
+                    _isLoginMode
+                        ? "Hesabın yok mu? Kayıt Ol"
+                        : "Zaten hesabın var mı? Giriş Yap",
+                    style: TextStyle(color: colorScheme.primary),
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                const Row(
+                  children: [
+                    Expanded(child: Divider()),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12.0),
+                      child: Text("veya"),
+                    ),
+                    Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 20),
+    
+                // Google ile Giriş Butonu
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.login), // Google ikonu da olabilir
+                  label: const Text("Google ile Giriş Yap"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: colorScheme.surface, // Farklı renk
+                    foregroundColor: colorScheme.onSurface,
+                  ),
+                  onPressed: () async {
+                    await authService.signInWithGoogle();
+                    _loadStats(); // Giriş yaptıktan sonra istatistikleri yükle
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-            Text(
-              "İlerlemeni kaydetmek ve sıralamaya girmek için giriş yap.",
-              style: textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 30),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.login), // Google ikonu da olabilir
-              label: const Text("Google ile Giriş Yap"),
-              onPressed: () async {
-                await authService.signInWithGoogle();
-                _loadStats(); // Giriş yaptıktan sonra istatistikleri yükle
-              },
-            ),
-            const SizedBox(height: 20),
-            Text("veya", style: textTheme.bodyMedium),
-            const SizedBox(height: 20),
-            // TODO: E-posta ile giriş/kayıt butonları buraya eklenebilir
-            Text(
-              "E-posta ile giriş/kayıt yakında eklenecek.",
-              style: textTheme.bodySmall,
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
   
-  // Oturum Açıkken Gösterilecek Arayüz (Eski statistics_page.dart)
+  // Oturum Açıkken Gösterilecek Arayüz (Değişiklik Yok)
   Widget _buildLoggedInView(BuildContext context, User user) {
     final textTheme = Theme.of(context).textTheme;
 
@@ -201,7 +359,7 @@ class _ProfilePageState extends State<ProfilePage>
                   const SizedBox(height: 20),
                   Card(
                     elevation: 0,
-                    color: Theme.of(context).colorScheme.surface.withOpacity(0.5),
+                    color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
