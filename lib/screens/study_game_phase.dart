@@ -1,418 +1,347 @@
-import 'dart:async'; 
+// lib/screens/study_game_phase.dart
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:word_learn/models/word_card.dart';
 
-String _scrambleLetters(String word) {
-  final List<String> letters = word.toUpperCase().split('');
-  letters.shuffle(Random());
-  return letters.join('');
-}
-
 class StudyGamePhase extends StatefulWidget {
-  final List<WordCard> wordsToTest;
-  final Function(int score, List<WordCard> correct, List<WordCard> incorrect)
-      onFinished;
+  final List<WordCard> sessionWords;
+  final Function(List<WordCard> correct, List<WordCard> incorrect, int score)
+      onSessionComplete;
 
   const StudyGamePhase({
-    super.key,
-    required this.wordsToTest,
-    required this.onFinished,
-  });
+    Key? key,
+    required this.sessionWords,
+    required this.onSessionComplete,
+  }) : super(key: key);
 
   @override
-  State<StudyGamePhase> createState() => _StudyGamePhaseState();
+  _StudyGamePhaseState createState() => _StudyGamePhaseState();
 }
 
 class _StudyGamePhaseState extends State<StudyGamePhase> {
-  List<WordCard> _currentSessionWords = [];
-  WordCard? _currentWord;
-  bool _isLoading = true;
-
-  int _score = 0;
-  final List<WordCard> _correct = [];
-  final List<WordCard> _incorrect = [];
-
-  String _currentInput = '';
+  int _currentIndex = 0;
+  String _userInput = "";
   List<String> _shuffledLetters = [];
-  List<int> _usedLetterIndices = [];
+  WordCard? _currentWord;
 
-  // --- YENİ EKLENENLER (Süre için) ---
-  Timer? _wordTimer;
+  Timer? _timer;
   int _secondsElapsed = 0;
-  static const int _basePoints = 15; // Maksimum puan
-  static const int _minPoints = 5;  // Minimum puan
-  // ---------------------------------
+  final int _basePoints = 15;
+  final int _minPoints = 5;
+  int _totalScore = 0;
+
+  final List<WordCard> _correctWords = [];
+  final List<WordCard> _incorrectWords = [];
+
+  // Steampunk teması için harf çarkı açıları
+  Map<int, double> _letterAngles = {};
+  final double _radius = 110.0;
 
   @override
   void initState() {
     super.initState();
-    _loadWordsForGame();
+    _loadWord();
+  }
+
+  void _loadWord() {
+    if (_currentIndex < widget.sessionWords.length) {
+      _currentWord = widget.sessionWords[_currentIndex];
+      _userInput = "";
+      _secondsElapsed = 0;
+      _startTimer();
+      _shuffledLetters = _currentWord!.englishWord.split('')..shuffle();
+      _generateAngles(); // Her kelimede açıları yeniden hesapla
+    } else {
+      _timer?.cancel();
+      widget.onSessionComplete(_correctWords, _incorrectWords, _totalScore);
+    }
+  }
+
+  // Harfler için rastgele dönme açıları oluştur
+  void _generateAngles() {
+    _letterAngles.clear();
+    final random = Random();
+    for (int i = 0; i < _shuffledLetters.length; i++) {
+      // Harflerin üst üste binmesini önlemek için küçük rastgelelik
+      _letterAngles[i] = random.nextDouble() * 10 - 5;
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _secondsElapsed++;
+      });
+    });
+  }
+
+  // Harf Çarkından bir harfe tıklandığında
+  void _onLetterTapped(String letter, int index) {
+    setState(() {
+      _userInput += letter;
+      _shuffledLetters.removeAt(index); // Kullanılan harfi çarktan kaldır
+      _letterAngles.remove(index); // Açısını da kaldır
+
+      // Cevap doğru mu kontrol et
+      if (_userInput == _currentWord!.englishWord) {
+        _timer?.cancel();
+        int points = _calculatePoints();
+        _totalScore += points;
+        _correctWords.add(_currentWord!);
+        
+        // TODO: Doğru cevap animasyonu (örn. yeşil parlama)
+        
+        Future.delayed(const Duration(milliseconds: 500), () {
+          setState(() {
+            _currentIndex++;
+            _loadWord();
+          });
+        });
+      }
+    });
+  }
+
+  // Harf kutusuna tıklandığında (geri silme)
+  void _onInputBoxTapped(int index) {
+    setState(() {
+      String removedLetter = _userInput[index];
+      _userInput = _userInput.substring(0, index) +
+          _userInput.substring(index + 1);
+      _shuffledLetters.add(removedLetter); // Harfi çarka geri ekle
+      _generateAngles(); // Geri eklenen harf için yeni açı
+    });
+  }
+
+  int _calculatePoints() {
+    int points = _basePoints - (_secondsElapsed ~/ 2);
+    return points.clamp(_minPoints, _basePoints);
   }
 
   @override
   void dispose() {
-    _wordTimer?.cancel(); // Sayfa kapanırsa zamanlayıcıyı durdur
+    _timer?.cancel();
     super.dispose();
   }
 
-  void _loadWordsForGame() {
-    _currentSessionWords = List.from(widget.wordsToTest);
-    _currentSessionWords.removeWhere((w) => w.englishWord.length < 3);
-    _currentSessionWords.shuffle();
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    if (_currentWord == null) {
+      return Center(
+          child: CircularProgressIndicator(color: colorScheme.primary));
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Kelime Oyunu (${_currentIndex + 1}/${widget.sessionWords.length})"),
+        bottom: _buildTimer(context), // Zamanlayıcıyı AppBar'ın altına al
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // Soru Alanı
+            Text(
+              "Türkçesi:",
+              style: textTheme.titleMedium
+                  ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
+            ),
+            Text(
+              _currentWord!.turkishTranslation,
+              style: textTheme.headlineMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+
+            // Cevap Kutuları Alanı
+            _buildInputBoxes(context),
+            const SizedBox(height: 40),
+
+            // Harf Çarkı Alanı
+            Expanded(
+              child: Center(
+                child: _buildLetterWheel(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Zamanlayıcı (Steampunk Gauge/Gösterge gibi)
+  PreferredSizeWidget _buildTimer(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    double progress = 1.0 - (_secondsElapsed / (_basePoints - _minPoints) / 2);
+    progress = progress.clamp(0.0, 1.0); // 0 ile 1 arasında kalmasını sağla
     
-    if (_currentSessionWords.isEmpty) {
-       if (mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           const SnackBar(content: Text("Oyun için yeterli kelime yok (min. 3 harf).")),
-         );
-         widget.onFinished(0, [], []);
-       }
-       return;
-    }
+    // Puanın ne zaman düşeceğini gösteren renk
+    Color progressColor =
+        progress > 0.5 ? colorScheme.primary : colorScheme.error;
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        _nextWord();
-      });
-    }
-  }
-
-  // Bir sonraki kelimeye geç
-  void _nextWord() {
-    // Önceki zamanlayıcıyı durdur
-    _wordTimer?.cancel();
-
-    if (_currentSessionWords.isEmpty) {
-      if (mounted) {
-        widget.onFinished(_score, _correct, _incorrect);
-      }
-      return;
-    }
-    
-    setState(() {
-      _currentWord = _currentSessionWords.first;
-      _currentInput = '';
-      _shuffledLetters = _scrambleLetters(_currentWord!.englishWord).split('');
-      _usedLetterIndices.clear();
-      
-      // YENİ: Zamanlayıcıyı başlat
-      _secondsElapsed = 0;
-      _wordTimer = Timer.periodic(const Duration(seconds: 1), (timer) { 
-        setState(() {
-          _secondsElapsed++; 
-        });
-      });
-    });
-  }
-
-  void _addLetter(String letter, int index) {
-    if (_usedLetterIndices.contains(index)) return;
-    setState(() {
-      _currentInput += letter;
-      _usedLetterIndices.add(index);
-      _checkWord();
-    });
-  }
-
-  void _removeLetterAtIndex(int indexToRemove) {
-     if (_currentInput.isEmpty) return;
-     setState(() {
-        _currentInput = _currentInput.substring(0, _currentInput.length - 1);
-        _usedLetterIndices.removeLast();
-     });
-  }
-  
-  // Kelime Kontrolü (GÜNCELLENDİ)
-  void _checkWord() {
-    if (_currentWord == null) return;
-    final correctWord = _currentWord!.englishWord.toUpperCase();
-    
-    if (_currentInput.length == correctWord.length) {
-      final isCorrect = _currentInput == correctWord;
-      
-      if (isCorrect) {
-        // YENİ: Puanı süreye göre hesapla
-        _wordTimer?.cancel();
-        // Hızlı cevap = 15 puan. Her 2 saniyede 1 puan düşer, min 5 puan.
-        int points = _basePoints - (_secondsElapsed ~/ 2);
-        points = points.clamp(_minPoints, _basePoints); // Puanı min/max aralığında tut
-        
-        _score += points; 
-        _correct.add(_currentWord!);
-        _currentSessionWords.removeWhere((w) => w.englishWord == _currentWord!.englishWord);
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text("Mükemmel! 🔥 +$points Puan"), duration: const Duration(milliseconds: 1000)),
-        );
-        
-        Future.delayed(const Duration(milliseconds: 1000), _nextWord);
-
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Yanlış kelime! Tekrar dene.")),
-        );
-        setState(() {
-          _currentInput = '';
-          _usedLetterIndices.clear();
-        });
-      }
-    } else if (_currentInput.length > correctWord.length) {
-      setState(() {
-          _currentInput = '';
-          _usedLetterIndices.clear();
-      });
-    }
-  }
-
-  // Kelimeyi Atla (GÜNCELLENDİ)
-  void _skipWord() {
-    if (_currentWord != null) {
-      _wordTimer?.cancel(); // Zamanlayıcıyı durdur
-      
-      _incorrect.add(_currentWord!);
-      _currentSessionWords.removeWhere((w) => w.englishWord == _currentWord!.englishWord);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-         SnackBar(content: Text("Pas geçildi: ${_currentWord!.englishWord}"), duration: const Duration(milliseconds: 1000)),
-      );
-
-      Future.delayed(const Duration(milliseconds: 1000), _nextWord);
-    }
-  }
-  
-  // YENİ METOT: Erken çıkış onayı
-  Future<bool> _onWillPop() async {
-    final bool? shouldPop = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Oyundan Çık'),
-        content: const Text('Şu anki ilerlemeniz (bu oturum için) kaydedilmeyecek. Çıkmak istediğinize emin misiniz?'),
-        actions: [
-          TextButton(
-            child: const Text('İptal'),
-            onPressed: () => Navigator.pop(context, false),
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(10.0),
+      child: Column(
+        children: [
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.5),
+            valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+            minHeight: 10,
           ),
-          TextButton(
-            child: const Text('Çık', style: TextStyle(color: Colors.red)),
-            onPressed: () => Navigator.pop(context, true),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "Kalan Puan: +${_calculatePoints()}",
+                  style: TextStyle(color: progressColor, fontWeight: FontWeight.bold),
+                ),
+                Icon(Icons.timer, size: 16, color: colorScheme.onSurface.withOpacity(0.7)),
+              ],
+            ),
           ),
         ],
       ),
     );
-    return shouldPop ?? false;
   }
 
-  // --- UI METOTLARI (değişmedi) ---
-  Widget _buildAnswerGrid() {
-    // ... (Bu metot değişmedi) ...
-    final wordLength = _currentWord!.englishWord.length;
-    final letters = _currentInput.split('');
-
-    return Center(
-      child: Wrap(
-        spacing: 8.0,
-        runSpacing: 8.0,
-        alignment: WrapAlignment.center,
-        children: List.generate(wordLength, (index) {
-          final letter = index < letters.length ? letters[index] : '';
-          
-          return GestureDetector(
-            onTap: letter.isNotEmpty ? () => _removeLetterAtIndex(index) : null,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.blueAccent, width: 2),
-                borderRadius: BorderRadius.circular(8),
-                color: letter.isNotEmpty ? Colors.blueAccent : Colors.transparent,
-              ),
-              alignment: Alignment.center,
+  // Cevap Kutuları (Daha belirgin)
+  Widget _buildInputBoxes(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    
+    List<Widget> boxes = [];
+    for (int i = 0; i < _currentWord!.englishWord.length; i++) {
+      boxes.add(
+        GestureDetector(
+          onTap: () {
+            // Sadece doluysa geri sil
+            if (i < _userInput.length) {
+              _onInputBoxTapped(i);
+            }
+          },
+          child: Container(
+            width: 40,
+            height: 50,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: colorScheme.surface, // Antrasit yüzey
+              border: Border.all(
+                  color: colorScheme.primary.withOpacity(0.5), width: 1),
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 4,
+                  offset: const Offset(2, 2),
+                )
+              ],
+            ),
+            child: Center(
               child: Text(
-                letter,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: letter.isNotEmpty ? Colors.white : Colors.blueAccent,
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-
-  Widget _buildLetterWheel() {
-    // ... (Bu metot değişmedi) ...
-    if (_shuffledLetters.isEmpty) return const SizedBox.shrink();
-
-    const double outerRadius = 100.0; 
-    const double letterSize = 60.0; 
-    const double letterFontSize = 25.0;
-    final int count = _shuffledLetters.length;
-
-    const double totalSize = 2 * outerRadius + letterSize + 10; 
-    const double centerOffset = totalSize / 2;
-
-    return Container(
-      width: totalSize,
-      height: totalSize,
-      alignment: Alignment.center,
-      child: Stack(
-        children: [
-          ...List.generate(count, (i) {
-          final letter = _shuffledLetters[i];
-          final isUsed = _usedLetterIndices.contains(i);
-          
-          final double angle = 2 * pi * i / count; 
-          final double xOffsetFromCenter = outerRadius * cos(angle - pi / 2);
-          final double yOffsetFromCenter = outerRadius * sin(angle - pi / 2);
-          
-          return Positioned(
-            left: centerOffset + xOffsetFromCenter - (letterSize / 2),
-            top: centerOffset + yOffsetFromCenter - (letterSize / 2),
-            child: Opacity(
-              opacity: isUsed ? 0.5 : 1.0,
-              child: GestureDetector(
-                onTap: () => _addLetter(letter, i),
-                child: Container(
-                  width: letterSize,
-                  height: letterSize,
-                  decoration: BoxDecoration(
-                    color: isUsed ? Colors.grey.shade400 : Colors.deepOrange,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)],
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    letter,
-                    style: const TextStyle(
-                      fontSize: letterFontSize,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }),
-        
-        Center(
-            child: SizedBox(
-              width: 60, 
-              height: 60,
-              child: ElevatedButton(
-                onPressed: _skipWord,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey.shade100,
-                  foregroundColor: Colors.black54, 
-                  shape: const CircleBorder(),
-                  padding: EdgeInsets.zero,
-                  elevation: 5, 
-                  side: BorderSide(color: Colors.grey.shade300, width: 2), 
-                ),
-                child: const Icon(Icons.skip_next, size: 30),
+                i < _userInput.length ? _userInput[i].toUpperCase() : "",
+                style: textTheme.headlineSmall?.copyWith(color: colorScheme.primary),
               ),
             ),
           ),
-        ]
-      ),
-    );
-  }
-  // --- UI Metotları Sonu ---
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading || _currentWord == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
-    
-    final int totalInSession = widget.wordsToTest.length;
-    final int completedCount = _correct.length + _incorrect.length;
+    return Row(mainAxisAlignment: MainAxisAlignment.center, children: boxes);
+  }
 
-    // YENİ WIDGET: PopScope
-    return PopScope(
-      canPop: false, // Otomatik çıkışı engelle
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        final bool shouldPop = await _onWillPop();
-        if (shouldPop && context.mounted) {
-          _wordTimer?.cancel(); // Çıkarken zamanlayıcıyı durdur
-          Navigator.pop(context); // Onaylanırsa manuel çık
-        }
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text("Aşama 2: Kelime Yapma Oyunu"),
-          backgroundColor: Colors.blueAccent,
-          foregroundColor: Colors.white,
-          // automaticallyImplyLeading: false, // Geri tuşunu göstermek için bu satırı SİLİN
-        ),
-        body: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                // İlerleme
-                LinearProgressIndicator(
-                  value: (completedCount) / totalInSession,
-                  backgroundColor: Colors.grey.shade300,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "Kelime: ${completedCount + 1} / $totalInSession",
-                      style: const TextStyle(fontSize: 14, color: Colors.black54),
-                    ),
-                    // YENİ: Süre Göstergesi
-                    Text(
-                      "Süre: $_secondsElapsed sn",
-                      style: const TextStyle(fontSize: 14, color: Colors.redAccent, fontWeight: FontWeight.bold),
+  // Harf Çarkı (Steampunk Dişliler gibi)
+  Widget _buildLetterWheel(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    
+    final List<Widget> letters = [];
+    double angleIncrement = (2 * pi) / _shuffledLetters.length;
+
+    for (int i = 0; i < _shuffledLetters.length; i++) {
+      double angle = angleIncrement * i;
+      double x = _radius * cos(angle);
+      double y = _radius * sin(angle);
+      
+      // Harfleri biraz döndürerek dişli hissi ver
+      double rotationAngle = _letterAngles[i] ?? 0.0;
+
+      letters.add(
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          top: y + _radius, // Merkeze göre pozisyon
+          left: x + _radius, // Merkeze göre pozisyon
+          child: Transform.rotate(
+            angle: rotationAngle * (pi / 180), // Dereceyi radyana çevir
+            child: GestureDetector(
+              onTap: () => _onLetterTapped(_shuffledLetters[i], i),
+              child: Container(
+                width: 55,
+                height: 55,
+                decoration: BoxDecoration(
+                  // Pirinç/Altın metalik görünüm
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.primary.withOpacity(0.8),
+                      colorScheme.primary,
+                      colorScheme.secondary.withOpacity(0.7) // Bakır gölge
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: colorScheme.secondary, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 5,
+                      offset: const Offset(3, 3),
                     ),
                   ],
                 ),
-                const SizedBox(height: 30),
-                
-                // İpucu: Türkçe Çevirisi
-                Card(
-                  elevation: 4,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      children: [
-                        const Text("Hangi kelime?", style: TextStyle(fontSize: 18, color: Colors.grey)),
-                        const SizedBox(height: 8),
-                        Text(
-                          _currentWord!.turkishTranslation,
-                          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blueAccent),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                child: Center(
+                  child: Text(
+                    _shuffledLetters[i].toUpperCase(),
+                    style: textTheme.titleLarge?.copyWith(
+                      color: Colors.black, // Metalik üstüne koyu font
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                const SizedBox(height: 40),
-                
-                // Cevap Izgarası
-                _buildAnswerGrid(),
-                const SizedBox(height: 40),
-                
-                // Harf Çarkı
-                _buildLetterWheel(),
-              ],
+              ),
             ),
           ),
         ),
+      );
+    }
+
+    // Çarkın merkezi
+    return Container(
+      width: _radius * 2 + 60, // Harflerin sığması için
+      height: _radius * 2 + 60,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Arka plan dişlisi (dekoratif)
+          Container(
+            width: _radius * 1.5,
+            height: _radius * 1.5,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colorScheme.surface.withOpacity(0.5),
+              border: Border.all(color: colorScheme.secondary, width: 4, style: BorderStyle.solid),
+            ),
+            child: Icon(Icons.settings, color: colorScheme.surface, size: 50), // Arka plan
+          ),
+          ...letters,
+        ],
       ),
     );
   }

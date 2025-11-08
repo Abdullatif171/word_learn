@@ -1,9 +1,11 @@
+// lib/screens/home_page.dart
 import 'package:flutter/material.dart';
-import 'package:word_learn/screens/statistics_page.dart';
+import 'package:word_learn/screens/leaderboard_page.dart';
+import 'package:word_learn/screens/profile_page.dart';
 import 'package:word_learn/services/deck_service.dart';
-import '../widgets/build_menu_card.dart';
+import '../widgets/build_menu_card.dart'; // Bu widget'ı da güncelleyeceğiz
 import 'library_page.dart';
-
+// ... (HomePage State class - Değişiklik Yok) ...
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -11,7 +13,6 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => HomePageState();
 }
 
-// 2. GÜNCELLEME: _HomePageState -> HomePageState
 class HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
@@ -19,7 +20,8 @@ class HomePageState extends State<HomePage> {
   final List<Widget> _pages = [
     MainPage(),
     const LibraryPage(),
-    const StatisticsPage(),
+    const LeaderboardPage(),
+    const ProfilePage(),
   ];
 
   @override
@@ -32,7 +34,7 @@ class HomePageState extends State<HomePage> {
     setState(() {
       _currentIndex = index;
     });
-    _pageController.jumpToPage(index); // Sayfayı anında değiştir
+    _pageController.jumpToPage(index);
   }
 
   @override
@@ -49,27 +51,23 @@ class HomePageState extends State<HomePage> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        // 4. GÜNCELLEME: _onTap -> publicOnTap
         onTap: publicOnTap,
-        selectedItemColor: Colors.blueAccent,
-        unselectedItemColor: Colors.grey,
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: "Ana Sayfa"),
           BottomNavigationBarItem(
-            icon: Icon(Icons.library_books),
-            label: "Kütüphane",
-          ),
+              icon: Icon(Icons.home_filled), label: "Ana Sayfa"),
           BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart),
-            label: "İstatistikler",
-          ),
+              icon: Icon(Icons.library_books), label: "Kütüphane"),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.leaderboard), label: "Sıralama"),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profilim"),
         ],
       ),
     );
   }
 }
 
+// --- MainPage (Ana Sayfa) İçeriği GÜNCELLENDİ ---
 class MainPage extends StatelessWidget {
   MainPage({super.key});
 
@@ -78,82 +76,88 @@ class MainPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final homePageState = context.findAncestorStateOfType<HomePageState>();
 
     return Scaffold(
-      backgroundColor: colorScheme.surfaceContainerHighest,
       appBar: AppBar(
-        title: const Text("Kelime Kartları"),
-        centerTitle: true,
-        elevation: 4,
-        backgroundColor: colorScheme.primary,
-        foregroundColor: Colors.white,
+        // AppBar başlığı artık Steampunk fontuyla (main.dart'tan)
+        title: const Text("WordLearn"),
+        // AppBar arka planı 'surfaceColor' (Antrasit)
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
+      body: Container(
+        // Arka plana hafif bir desen veya doku eklenebilir,
+        // şimdilik temadan gelen ana arka plan rengini kullanalım.
+        decoration: BoxDecoration(
+          color: colorScheme.background,
+        ),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              children: [
+                const SizedBox(height: 20),
 
-              // Toplam Puan Göstergesi
-              FutureBuilder<int>(
-                future: _deckService.getUserScore(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const CircularProgressIndicator();
-                  }
-                  return Card(
-                    color: Colors.blue[50],
-                    elevation: 0,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.star, color: Colors.orange, size: 30),
-                          const SizedBox(width: 15),
-                          Text(
-                            "Toplam Puan: ${snapshot.data} 🔥",
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.primary,
+                // Toplam Puan Göstergesi (Steampunk Temalı)
+                FutureBuilder<int>(
+                  future: _deckService.getUserScore(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return Center(
+                          child: CircularProgressIndicator(
+                        color: colorScheme.primary, // Pirinç rengi
+                      ));
+                    }
+                    return Card(
+                      // CardTheme'den (main.dart) kenarlıklı stili alacak
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.star_border_purple500,
+                                color: colorScheme.primary, // Pirinç/Altın
+                                size: 30),
+                            const SizedBox(width: 15),
+                            Text(
+                              "Toplam Puan: ${snapshot.data} 🔥",
+                              style: textTheme.headlineSmall?.copyWith(
+                                color: colorScheme.primary, // Pirinç/Altın
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 30),
-
-              BuildMenuCard(
-                icon: Icons.library_books,
-                title: "Destelerine Göz At",
-                subtitle: "Yeni desteler indir veya çalışmaya başla",
-                color: Colors.blueAccent,
-                onTap: () {
-                  // BottomNavBar'da 1. indekse (Kütüphane) git
-                  // 6. GÜNCELLEME: _onTap -> publicOnTap
-                  homePageState?.publicOnTap(1);
-                },
-              ),
-
-              const SizedBox(height: 40),
-
-              Text(
-                "🎯 Öğrenmek için kütüphaneden bir deste seç!",
-                style: TextStyle(
-                  fontSize: 14,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey[700],
+                    );
+                  },
                 ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+
+                const SizedBox(height: 30),
+
+                // Menü Kartı (Temadan renk alacak)
+                BuildMenuCard(
+                  icon: Icons.library_books,
+                  title: "Kütüphane",
+                  subtitle: "Yeni desteler indir veya çalışmaya başla",
+                  color: colorScheme.secondary, // Bakır rengi
+                  onTap: () {
+                    homePageState?.publicOnTap(1); // Kütüphane (index 1)
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                BuildMenuCard(
+                  icon: Icons.leaderboard,
+                  title: "Sıralama",
+                  subtitle: "Puanını diğerleriyle karşılaştır",
+                  color: colorScheme.primary, // Pirinç/Altın rengi
+                  onTap: () {
+                    homePageState?.publicOnTap(2); // Sıralama (index 2)
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),

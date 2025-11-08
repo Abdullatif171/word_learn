@@ -3,132 +3,144 @@ import 'package:flutter/material.dart';
 import 'package:word_learn/models/word_card.dart';
 
 class StudyLearnPhase extends StatefulWidget {
-  final List<WordCard> words;
-  final VoidCallback onFinished;
+  final List<WordCard> sessionWords;
+  final VoidCallback onPhaseComplete;
 
-  const StudyLearnPhase({
-    super.key,
-    required this.words,
-    required this.onFinished,
-  });
+  const StudyLearnPhase(
+      {Key? key, required this.sessionWords, required this.onPhaseComplete})
+      : super(key: key);
 
   @override
-  State<StudyLearnPhase> createState() => _StudyLearnPhaseState();
+  _StudyLearnPhaseState createState() => _StudyLearnPhaseState();
 }
 
 class _StudyLearnPhaseState extends State<StudyLearnPhase> {
   int _currentIndex = 0;
   bool _isFlipped = false;
+  late PageController _pageController;
 
-  void _nextCard(DismissDirection direction) {
-    if (_currentIndex < widget.words.length - 1) {
-      setState(() {
-        _currentIndex++;
-        _isFlipped = false;
-      });
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _nextCard() {
+    if (_currentIndex < widget.sessionWords.length - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     } else {
-      widget.onFinished();
+      widget.onPhaseComplete();
     }
-  }
-
-  Widget _buildCard(WordCard word) {
-    // ... (Bu metot değişmedi) ...
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _isFlipped = !_isFlipped;
-        });
-      },
-      child: Card(
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.8,
-          height: MediaQuery.of(context).size.height * 0.5,
-          padding: const EdgeInsets.all(24.0),
-          alignment: Alignment.center,
-          child: Text(
-            _isFlipped ? word.turkishTranslation : word.englishWord,
-            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // YENİ METOT: Erken çıkış onayı
-  Future<bool> _onWillPop() async {
-    final bool? shouldPop = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Öğrenme Turundan Çık'),
-        content: const Text('Bu turu tamamlarsan mini oyuna geçeceksin. Şimdi çıkmak istediğine emin misin?'),
-        actions: [
-          TextButton(
-            child: const Text('İptal'),
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          TextButton(
-            child: const Text('Çık', style: TextStyle(color: Colors.red)),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
-    );
-    return shouldPop ?? false; // null ise false dön
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_currentIndex >= widget.words.length) {
-      return const Scaffold(body: Center(child: Text("Yükleniyor...")));
-    }
-    
-    final word = widget.words[_currentIndex];
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-    // YENİ WIDGET: PopScope
-    return PopScope(
-      canPop: false, // Otomatik çıkışı engelle
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        final bool shouldPop = await _onWillPop();
-        if (shouldPop && context.mounted) {
-          Navigator.pop(context); // Onaylanırsa manuel çık
-        }
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text("Aşama 1: Öğrenme Turu (Puan Yok)"),
-          centerTitle: true,
-          // automaticallyImplyLeading: false, // Geri tuşunu göstermek için bu satırı SİLİN
-        ),
-        body: Center(
-          // ... (Body içeriği değişmedi) ...
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Öğrenme Aşaması"),
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.sessionWords.length,
+        onPageChanged: (index) {
+          setState(() {
+            _currentIndex = index;
+            _isFlipped = false;
+          });
+        },
+        itemBuilder: (context, index) {
+          final word = widget.sessionWords[index];
+          return Padding(
+            padding: const EdgeInsets.all(32.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(
-                  "Kartı çevirmek için dokun, geçmek için kaydır.",
-                  style: Theme.of(context).textTheme.titleMedium,
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _isFlipped = !_isFlipped;
+                    });
+                  },
+                  child: AspectRatio(
+                    aspectRatio: 3 / 4, // Kart oranı
+                    child: Card(
+                      // main.dart'taki CardTheme'i kullanacak
+                      elevation: 8,
+                      clipBehavior: Clip.antiAlias,
+                      child: Container(
+                        // Kartın içine Steampunk kenarlık
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                              color: colorScheme.primary, width: 2),
+                          borderRadius: BorderRadius.circular(12),
+                          color: colorScheme.surface, // Antrasit yüzey
+                        ),
+                        child: Center(
+                          child: Text(
+                            _isFlipped
+                                ? word.turkishTranslation
+                                : word.englishWord,
+                            textAlign: TextAlign.center,
+                            style: _isFlipped
+                                ? textTheme.headlineMedium
+                                : textTheme.headlineLarge?.copyWith(
+                                    color: colorScheme.primary, // Pirinç/Altın
+                                    fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 20),
-                Dismissible(
-                  key: ValueKey(word.englishWord),
-                  onDismissed: _nextCard,
-                  child: _buildCard(word),
-                ),
-                const SizedBox(height: 20),
                 Text(
-                  "${_currentIndex + 1} / ${widget.words.length}",
-                  style: Theme.of(context).textTheme.headlineSmall,
+                  "Çevirmek için dokun, geçmek için kaydır.",
+                  style: textTheme.bodyMedium
+                      ?.copyWith(color: colorScheme.onSurface.withOpacity(0.7)),
                 ),
+                // İlerleme çubuğu
+                Padding(
+                  padding: const EdgeInsets.only(top: 24.0, left: 32, right: 32),
+                  child: LinearProgressIndicator(
+                    value: (_currentIndex + 1) / widget.sessionWords.length,
+                    minHeight: 8,
+                    borderRadius: BorderRadius.circular(4),
+                    backgroundColor: colorScheme.surface,
+                    valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                  ),
+                ),
+                // "Sonraki" butonu (kaydırma alternatifi)
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: TextButton.icon(
+                      onPressed: _nextCard,
+                      icon: Icon(Icons.arrow_forward),
+                      label: Text(
+                        _currentIndex == widget.sessionWords.length - 1
+                            ? "Bitir"
+                            : "Sonraki",
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: colorScheme.primary,
+                      ),
+                  ),
+                )
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

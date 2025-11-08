@@ -1,75 +1,68 @@
+// lib/widgets/build_menu_card.dart
 import 'package:flutter/material.dart';
 
-class BuildMenuCard extends StatefulWidget {
+class BuildMenuCard extends StatelessWidget {
   final IconData icon;
-    final String title;
-    final String subtitle;
-    final Color color;
-    final VoidCallback onTap;
-  
+  final String title;
+  final String subtitle;
+  final Color color; // Bu rengi ikon/vurgu için kullanacağız
+  final VoidCallback onTap;
+
   const BuildMenuCard({
-    super.key, 
+    Key? key,
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.color,
     required this.onTap,
-  });
+  }) : super(key: key);
 
-  @override
-  State<BuildMenuCard> createState() => _BuildMenuCardState();
-}
-
-class _BuildMenuCardState extends State<BuildMenuCard> {
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: widget.onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Card(
-        elevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              colors: [widget.color.withValues(alpha: 0.8), widget.color],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      // main.dart'taki CardTheme'i kullanacak (yüzey rengi, kenarlık vb.)
+      clipBehavior: Clip.antiAlias, // İçeriğin kenarlıktan taşmasını önle
+      child: InkWell(
+        onTap: onTap,
+        splashColor: color.withOpacity(0.2),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
           child: Row(
             children: [
-              Icon(widget.icon, size: 48, color: Colors.white),
+              Icon(
+                icon,
+                size: 40,
+                color: color, // Pirinç veya Bakır rengi
+              ),
               const SizedBox(width: 20),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.title,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                      title,
+                      style: textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface // Açık renk metin
+                          ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
-                      widget.subtitle,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.white70,
+                      subtitle,
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurface.withOpacity(0.7), // Soluk metin
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, color: Colors.white),
+              Icon(
+                Icons.arrow_forward_ios,
+                color: colorScheme.onSurface.withOpacity(0.5),
+              ),
             ],
           ),
         ),

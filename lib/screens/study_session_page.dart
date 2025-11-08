@@ -2,147 +2,139 @@
 import 'package:flutter/material.dart';
 import 'package:word_learn/models/deck_model.dart';
 import 'package:word_learn/models/word_card.dart';
+import 'package:word_learn/screens/study_game_phase.dart';
 import 'package:word_learn/screens/study_learn_phase.dart';
-// import 'package:word_learn/screens/study_test_phase.dart'; // YERİNE AŞAĞIDAKİ GELDİ
-import 'package:word_learn/screens/study_game_phase.dart'; // YENİ OYUNU İÇE AKTAR
 import 'package:word_learn/screens/study_result_phase.dart';
 import 'package:word_learn/services/deck_service.dart';
 
-// Oturumun 3 aşamasını tanımlayan enum
-enum StudyPhase { Loading, Learn, Test, Result }
+enum StudyPhase { learning, game, results }
 
 class StudySessionPage extends StatefulWidget {
-  final Deck deck;
-  const StudySessionPage({super.key, required this.deck});
+  // --- GÜNCELLEME ---
+  final Deck deck; // Sadece meta veri (ID, name) için
+  final List<WordCard> words; // Kelimelerin tam listesi
+  // --- GÜNCELLEME SONU ---
+
+  const StudySessionPage({
+    Key? key,
+    required this.deck,
+    required this.words,
+  }) : super(key: key);
 
   @override
-  State<StudySessionPage> createState() => _StudySessionPageState();
+  _StudySessionPageState createState() => _StudySessionPageState();
 }
 
 class _StudySessionPageState extends State<StudySessionPage> {
+  StudyPhase _currentPhase = StudyPhase.learning;
   final DeckService _deckService = DeckService();
-  StudyPhase _currentPhase = StudyPhase.Loading;
 
-  List<WordCard> _allDeckWords = [];
-  List<WordCard> _sessionWords = []; // Çalışılacak 10 kelime
-  
-  // Sonuçlar
+  List<WordCard> _sessionWords = [];
+  final List<WordCard> _allDeckWords = []; // Artık bu widget.words'ten gelecek
+
+  // Sonuçları saklamak için
+  List<WordCard> _correctAnswers = [];
+  List<WordCard> _incorrectAnswers = [];
   int _sessionScore = 0;
-  final List<WordCard> _correctWords = [];
-  final List<WordCard> _incorrectWords = [];
 
   @override
   void initState() {
     super.initState();
-    _loadWordsForSession();
+    _allDeckWords.addAll(widget.words); // Kelimeleri doğrudan al
+    _prepareSessionWords();
   }
 
-  Future<void> _loadWordsForSession() async {
-    // Destenin tüm kelimelerini yerel dosyadan yükle
-    _allDeckWords = await _deckService.loadDeckFromLocal(widget.deck.id);
-
-    // Henüz öğrenilmemiş (reviewIntervalDays == 0) veya tekrar zamanı gelmiş kelimeleri bul
+  void _prepareSessionWords() {
+    // 1. Tekrar zamanı gelen kelimeleri (due) bul
     final now = DateTime.now();
     final List<WordCard> dueWords = _allDeckWords.where((word) {
-      if (word.reviewIntervalDays == 0) return true; // Yeni kelime
       if (word.nextReviewTimestamp == null) return false;
-      try {
-        return DateTime.parse(word.nextReviewTimestamp!).isBefore(now);
-      } catch (e) {
-        return true; // Hatalı tarih varsa, çalışılsın
-      }
+      final reviewDate = DateTime.tryParse(word.nextReviewTimestamp!);
+      return reviewDate != null && reviewDate.isBefore(now);
     }).toList();
 
+    // 2. Yeni kelimeleri (öğrenilmemiş) bul
+    final List<WordCard> newWords = _allDeckWords
+        .where((word) => word.reviewIntervalDays == 0)
+        .toList();
+
+    // 3. Oturum kelimelerini birleştir (önce zamanı gelenler, sonra yeniler)
     dueWords.shuffle();
+    newWords.shuffle();
     
-    // O oturum için 10 kelime seç
-    _sessionWords = dueWords.take(10).toList();
+    _sessionWords = (dueWords + newWords).toSet().take(10).toList();
+    
+    // Eğer 10 kelime bulunamazsa, öğrenilmiş kelimelerden rastgele ekle
+    if (_sessionWords.length < 10) {
+      final List<WordCard> remainingWords = _allDeckWords
+          .where((word) => !_sessionWords.contains(word))
+          .toList();
+      remainingWords.shuffle();
+      _sessionWords.addAll(remainingWords.take(10 - _sessionWords.length));
+    }
 
+    // Oturum için yeterli kelime yoksa öğrenme aşamasına geç
     if (_sessionWords.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Bu destede çalışılacak yeni kelime kalmamış! 🥳")),
-        );
-        Navigator.of(context).pop();
-      }
-      return;
+      setState(() {
+        _currentPhase = StudyPhase.learning;
+      });
     }
-
-    setState(() {
-      _currentPhase = StudyPhase.Learn;
-    });
   }
 
-  // Aşama 1 (Öğrenme) bittiğinde çağrılır
-  void _onLearnFinished() {
-    setState(() {
-      _currentPhase = StudyPhase.Test;
-    });
+  // Aşama 1 bittiğinde (Learn -> Game)
+  void _onLearnComplete() {
+    if (_sessionWords.isEmpty) {
+      // Öğrenecek kelime yoksa direkt çık
+      Navigator.pop(context);
+    } else {
+      setState(() {
+        _currentPhase = StudyPhase.game;
+      });
+    }
   }
 
-  // Aşama 2 (Test) bittiğinde çağrılır
-  Future<void> _onTestFinished(int score, List<WordCard> correct, List<WordCard> incorrect) async {
-    // 1. Sonuçları kaydet
+  // Aşama 2 bittiğinde (Game -> Results)
+  void _onGameComplete(
+      List<WordCard> correct, List<WordCard> incorrect, int score) async {
+    
+    // --- GÜNCELLEME (deck.id -> widget.deck.id) ---
+    // Puanı ve ilerlemeyi kaydet
+    await _deckService.updateUserScore(score);
+    await _deckService.updateWordsProgress(widget.deck.id, correct, incorrect);
+    // --- GÜNCELLEME SONU ---
+
     setState(() {
+      _correctAnswers = correct;
+      _incorrectAnswers = incorrect;
       _sessionScore = score;
-      _correctWords.addAll(correct);
-      _incorrectWords.addAll(incorrect);
-      _currentPhase = StudyPhase.Result;
+      _currentPhase = StudyPhase.results;
     });
-
-    // 2. Puanı ve ilerlemeyi veritabanına yaz
-    try {
-      await _deckService.updateUserScore(_sessionScore);
-      await _deckService.updateWordsProgress(widget.deck.id, _correctWords, _incorrectWords);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("İlerleme kaydedilirken hata oluştu: $e")),
-        );
-      }
-    }
   }
 
-  // Aşama 3 (Sonuç) bittiğinde çağrılır
-  void _onResultFinished() {
-    Navigator.of(context).pop();
+  // Aşama 3 bittiğinde (Results -> Çıkış)
+  void _onResultComplete() {
+    Navigator.pop(context); // Kütüphane sayfasına geri dön
   }
 
   @override
   Widget build(BuildContext context) {
     switch (_currentPhase) {
-      case StudyPhase.Loading:
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
-      case StudyPhase.Learn:
+      case StudyPhase.learning:
         return StudyLearnPhase(
-          words: _sessionWords,
-          onFinished: _onLearnFinished,
+          sessionWords: _sessionWords.isEmpty ? _allDeckWords.take(10).toList() : _sessionWords,
+          onPhaseComplete: _onLearnComplete,
         );
-      case StudyPhase.Test:
-        // ---------- GÜNCELLEME BURADA ----------
-        // StudyTestPhase yerine StudyGamePhase çağırıyoruz.
-        // Artık 'allDeckWords' parametresine gerek yok.
+      case StudyPhase.game:
         return StudyGamePhase(
-          wordsToTest: _sessionWords,
-          onFinished: _onTestFinished,
+          sessionWords: _sessionWords,
+          onSessionComplete: _onGameComplete,
         );
-        // ---------- GÜNCELLEME BİTTİ ----------
-      case StudyPhase.Result:
-        // Hiç kelime test edilmediyse (örn. hepsi 3 harften kısaydı)
-        // direkt geri dön
-        if (_sessionWords.isEmpty) {
-          Future.microtask(() => Navigator.of(context).pop());
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        
+      case StudyPhase.results:
         return StudyResultPhase(
           score: _sessionScore,
-          totalQuestions: _sessionWords.length,
-          correctWords: _correctWords,
-          incorrectWords: _incorrectWords,
-          onFinished: _onResultFinished,
+          correctWords: _correctAnswers,
+          incorrectWords: _incorrectAnswers,
+          onExit: _onResultComplete,
         );
     }
   }
