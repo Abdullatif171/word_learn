@@ -1,10 +1,9 @@
-// lib/services/auth_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:word_learn/firebase_options.dart'; // ID'yi almak için
-import 'package:flutter/foundation.dart'; // Platform kontrolü için
+import 'package:word_learn/firebase_options.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   final FirebaseAuth _firebaseAuth;
@@ -13,69 +12,61 @@ class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
   bool _isGoogleSignInInitialized = false;
 
+  // ÖNEMLİ: Bu ID'yi Google Cloud Console'dan almanız GEREKİR.
+  static const String _webClientId = "word-cards-e710f";
+
   AuthService(this._firebaseAuth) {
     _initializeGoogleSignIn();
   }
 
-  // Adım 2: Asenkron başlatma (HATA DÜZELTİLDİ)
   Future<void> _initializeGoogleSignIn() async {
-      // Android ve iOS platformları için 'serverClientId' olarak 
-      // 'iosClientId' kullanılır. Bu, FlutterFire'ın yapılandırma şeklidir.
-      // Web platformu farklı bir 'clientId' kullanır ancak şu anki hatanız
-      // mobil platformla ilgilidir.
-      
-      String? serverClientId;
-      
-      if (!kIsWeb) {
-         // Android ve iOS için 'iosClientId' kullanılır.
-        serverClientId = DefaultFirebaseOptions.currentPlatform.iosClientId;
-      }
-      // Not: Eğer web'i de destekleyecekseniz, Google Cloud Console'dan
-      // aldığınız Web Client ID'sini buraya manuel eklemeniz gerekebilir.
-      // Şimdilik mobil hatasını çözüyoruz.
+    String? serverClientId;
 
-      await _googleSignIn.initialize(
-        serverClientId: serverClientId, // Düzeltilmiş ID'yi buraya iletiyoruz
-      );
-      _isGoogleSignInInitialized = true;
+    if (!kIsWeb) {
+      // v7 ve sonrası, mobil platformlar için 'serverClientId' olarak
+      // Web Client ID'nin kullanılmasını bekler.
+      serverClientId = _webClientId;
+    }
+    
+    // v7'de 'initialize' çağrısı zorunludur
+    await _googleSignIn.initialize(
+      serverClientId: serverClientId,
+      clientId: kIsWeb ? _webClientId : null,
+    );
+    _isGoogleSignInInitialized = true;
   }
 
-  // Adım 2: Başlatmayı kontrol et
   Future<void> _ensureGoogleSignInInitialized() async {
     if (!_isGoogleSignInInitialized) {
       await _initializeGoogleSignIn();
     }
   }
 
-  // Stream ve anlık kullanıcı için
   Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
   User? get currentUser => _firebaseAuth.currentUser;
 
-
-  // Adım 8: Firebase Entegrasyonu
   Future<UserCredential?> signInWithGoogle() async {
     await _ensureGoogleSignInInitialized();
 
     try {
-      // Adım 3: 'authenticate' kullan
+      // v7'de 'authenticate' metodu kullanılır
       final GoogleSignInAccount? googleUser = await _googleSignIn.authenticate(
         scopeHint: ['email'],
       );
 
-      // Kullanıcı iptal ederse googleUser null gelebilir
       if (googleUser == null) {
-        throw Exception("Google Sign In iptal edildi.");
+        return null; // Kullanıcı iptal etti
       }
 
-      // Adım 5: Senkron 'authentication' al (idToken için)
+      // idToken
       final GoogleSignInAuthentication googleAuth = googleUser.authentication;
 
-      // Adım 6: 'authorizationClient' al (accessToken için)
+      // accessToken (v7'de bu şekilde alınır)
       final authClient = googleUser.authorizationClient;
       final authorization = await authClient.authorizationForScopes(['email']);
 
       if (authorization == null) {
-        return null;
+        return null; // Yetki alınamadı
       }
 
       final credential = GoogleAuthProvider.credential(
@@ -83,28 +74,23 @@ class AuthService {
         idToken: googleAuth.idToken,
       );
 
-      final userCredential = await _firebaseAuth.signInWithCredential(credential);
+      final userCredential =
+          await _firebaseAuth.signInWithCredential(credential);
 
-      // Firestore'a kaydet
       if (userCredential.user != null) {
         await _createOrUpdateUserInFirestore(userCredential.user!);
       }
       return userCredential;
-
-    } on GoogleSignInException {
-      return null;
     } catch (error) {
+      debugPrint("Google Sign In Hatası: $error");
       return null;
     }
   }
 
-  // Çıkış Yap
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _firebaseAuth.signOut();
   }
-  
-  // --- DİĞER METOTLARINIZ (Değişiklik Gerekmiyor) ---
 
   Future<String?> registerWithEmail(String email, String password) async {
     try {

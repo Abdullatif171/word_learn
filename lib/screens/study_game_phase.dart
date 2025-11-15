@@ -10,13 +10,13 @@ class StudyGamePhase extends StatefulWidget {
       onSessionComplete;
 
   const StudyGamePhase({
-    Key? key,
+    super.key,
     required this.sessionWords,
     required this.onSessionComplete,
-  }) : super(key: key);
+  });
 
   @override
-  _StudyGamePhaseState createState() => _StudyGamePhaseState();
+  State<StudyGamePhase> createState() => _StudyGamePhaseState();
 }
 
 class _StudyGamePhaseState extends State<StudyGamePhase> {
@@ -35,7 +35,7 @@ class _StudyGamePhaseState extends State<StudyGamePhase> {
   final List<WordCard> _incorrectWords = [];
 
   // Steampunk teması için harf çarkı açıları
-  Map<int, double> _letterAngles = {};
+  final Map<int, double> _letterAngles = {};
   final double _radius = 110.0;
 
   // Animasyon için
