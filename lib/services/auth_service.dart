@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:word_learn/firebase_options.dart';
 import 'package:flutter/foundation.dart';
 
 class AuthService {
@@ -13,7 +12,7 @@ class AuthService {
   bool _isGoogleSignInInitialized = false;
 
   // ÖNEMLİ: Bu ID'yi Google Cloud Console'dan almanız GEREKİR.
-  static const String _webClientId = "word-cards-e710f";
+  static const String _webClientId = "706319913643-qirl39a7m16ofbn9eoib1i2dt35mp66s.apps.googleusercontent.com";
 
   AuthService(this._firebaseAuth) {
     _initializeGoogleSignIn();
